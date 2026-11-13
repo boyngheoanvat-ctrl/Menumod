@@ -1,0 +1,49 @@
+name: Build ERI LOGIN iOS Dylib (Key and Account)
+on:
+  push:
+    branches: [eri-login-admin]
+    paths:
+      - 'native/ios/ERILogin.m'
+      - '.github/workflows/build-eri-ios-login.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  compile-ios:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eri-login-admin
+          persist-credentials: true
+      - name: Compile ERI native Login dylib with two modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
+            -fobjc-arc -O2 -dynamiclib -framework UIKit -framework Foundation -framework Security \
+            -Wl,-install_name,@executable_path/Frameworks/ERILogin.dylib \
+            native/ios/ERILogin.m -o native/ios/ERILogin.dylib
+          lipo -info native/ios/ERILogin.dylib
+          xcrun otool -D native/ios/ERILogin.dylib
+          strings native/ios/ERILogin.dylib | grep '/api/login'
+          strings native/ios/ERILogin.dylib | grep '/api/key/activate'
+      - name: Update checksums and save dylib in Menumod
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd native && sha256sum ios/ERILogin.dylib android/arm64-v8a/libERILogin.so android/armeabi-v7a/libERILogin.so > SHA256SUMS.txt)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add native/ios/ERILogin.dylib native/SHA256SUMS.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish dual-mode ERI LOGIN iOS dylib (account and key)"
+            git push origin HEAD:eri-login-admin
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ERI-iOS-login-account-key-dylib
+          path: native/ios/ERILogin.dylib
+          retention-days: 90
