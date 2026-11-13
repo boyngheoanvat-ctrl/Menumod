@@ -10,7 +10,7 @@ permissions:
   contents: write
 jobs:
   compile-ios:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
