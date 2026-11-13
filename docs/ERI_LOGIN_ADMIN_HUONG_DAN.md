@@ -1,58 +1,60 @@
-# HƯỚNG DẪN ERI LOGIN ADMIN + GẮN LOGIN VÀO IPA/APK
+# ERI LOGIN — Native iOS dylib / Android .so + ERI ADMIN IPA
 
 Repository: `boyngheoanvat-ctrl/Menumod`, branch `eri-login-admin`.
 
-## 1. Cài ERI LOGIN ADMIN trên iPhone
+## Thành phần chính
 
-- Tải `releases/ERI_LOGIN_ADMIN_unsigned.ipa` (IPA ARM64 iOS 16+).
-- IPA chưa ký: ký với chứng chỉ `.p12` và `.mobileprovision` hợp lệ bằng công cụ ký iOS bạn đang dùng; sau đó mới cài được.
-- Mở app, nhập ERI_ADMIN_KEY (bí mật của người quản trị) và bấm "Lưu khóa Admin trong Keychain".
-- Điền App ID. App ID phải khớp chính xác với Bundle ID của IPA hoặc Android package name của APK sẽ yêu cầu Login.
+- `native/ios/ERILogin.dylib`: thư viện ARM64 iOS, màn hình nhập key và kiểm tra API (đã build bằng iOS SDK).
+- `native/android/arm64-v8a/libERILogin.so`: thư viện Android ARM64, xác thực key online qua Android HTTPS (JNI).
+- `native/android/armeabi-v7a/libERILogin.so`: thư viện Android ARM32.
+- `native/unity/ERILoginBootstrap.cs`: mã gọi native `.so` trong **dự án Unity được quyền chỉnh sửa**; giữ game trong boot scene cho đến khi key hợp lệ.
+- `releases/ERI_LOGIN_ADMIN_unsigned.ipa`: IPA quản trị (chưa ký) để tạo tài khoản/mật khẩu, cấp key, gia hạn, khóa/mở khóa, reset thiết bị, xóa.
 
-## 2. Tạo tài khoản + mật khẩu
+**Không dùng Python hoặc Android DEX để sửa IPA/APK.** Không có trình chèn tự động vào game đã biên dịch.
 
-- Chọn tab `TK / Mật khẩu`.
-- Nhập tên tài khoản, mật khẩu ít nhất 8 ký tự, thời hạn (số ngày 1–3650).
-- Nhấn `Tạo TK + MK`. Có nút sao chép để giao thông tin cho khách.
-- Nhấn `Tải danh sách TK` để xem các tài khoản. Có thể gia hạn, khóa/mở khóa, xóa.
-- API hiện lưu mật khẩu ở dạng băm; không thể xem lại mật khẩu đã tạo.
-- **Quan trọng:** Đây là hệ thống tài khoản/mật khẩu độc lập. Thư viện ERILogin.dylib và ERIAndroidGate.dex **chỉ hỗ trợ nhập key**, KHÔNG dùng tài khoản/mật khẩu. Không được quảng cáo rằng TK/MK đã hoạt động trong game khi chưa tích hợp thêm client tương ứng.
+## ERI LOGIN ADMIN IPA — tạo tài khoản / mật khẩu và key
 
-## 3. Tạo và quản lý key — 1 key / 1 thiết bị
+1. Tải `releases/ERI_LOGIN_ADMIN_unsigned.ipa` và ký ứng dụng bằng chứng chỉ iOS hợp lệ trước khi cài.
+2. Mở IPA Admin, nhập `ERI_ADMIN_KEY` **chỉ một lần**, nhấn **Kiểm tra & Lưu khóa Admin**. Khi máy chủ phản hồi thành công, khóa được lưu vào Keychain và tự dùng lại khi mở app.
+3. Điền App ID trùng chính xác với bundle identifier (iOS) hoặc package name (Android) của ứng dụng cần xác thực.
+4. Tab **TK / Mật khẩu**: tạo tên tài khoản, mật khẩu >= 8 ký tự, thời hạn; xem danh sách và gia hạn/khóa/mở khóa/xóa.
+5. Tab **Key 1 thiết bị**: cấp key, sao chép key sau khi tạo, xem trạng thái, gia hạn/khóa/mở khóa/xóa/reset thiết bị.
 
-- Chọn tab `Key 1 thiết bị`.
-- Nhập tên người mua, số ngày và nhấn `Tạo key mới`.
-- Sao chép và giao key một lần cho khách.
-- Nhấn `Tải danh sách key` để xem trạng thái; có thể gia hạn, khóa/mở khóa, reset thiết bị hoặc xóa.
-- Khi khách kích hoạt lần đầu, API sẽ liên kết key với UUID mà ứng dụng đã lưu trong Keychain (iOS) hoặc lưu trữ ứng dụng trên Android. Điều này **không phải chứng thực phần cứng tuyệt đối**.
+**Lưu ý**: Hiện thư viện native dùng **key**, không dùng TK/MK. Đây là hai phương thức khác nhau. Mật khẩu khách không đọc lại được từ máy chủ.
 
-## 4. Gắn ERI LOGIN vào IPA bằng Python trên iPhone
+**Không bao giờ** nhúng `ERI_ADMIN_KEY` vào dylib hoặc .so phân phối cho khách. API: `https://eri-login-api.onrender.com`.
 
-Cần dùng với ứng dụng mà bạn có quyền chỉnh sửa và phân phối.
+## Android: gắn trực tiếp `libERILogin.so` vào dự án Unity
 
-1. Tải 2 file `injector/LOGIN.py` và `injector/ERILogin.dylib`.
-2. Trong Documents của ứng dụng chạy Python, đặt `LOGIN.py`, `ERILogin.dylib` và **một** IPA mục tiêu vào cùng một thư mục.
-3. Mở `LOGIN.py` và chạy. Python tự tìm IPA/APK gần nhất trong thư mục chứa script; nên chỉ đặt 1 file mục tiêu để tránh chọn nhầm.
-4. Nếu Mach-O ARM64 64-bit là dạng thin, không bị FairPlay mã hóa và còn vùng trống cho lệnh nạp dylib, Python chèn `LC_LOAD_DYLIB`, đưa `ERILogin.dylib` vào Frameworks và xuất `<ten>_ERI_LOGIN_unsigned.ipa`.
-5. Ký lại **cả ứng dụng và dylib** bằng chứng chỉ/hồ sơ hợp lệ, sau đó mới thử cài trên iPhone.
+Áp dụng cho **dự án Unity có mã nguồn** mà bạn có quyền chỉnh sửa.
 
-**Giới hạn:** Python báo lỗi nếu IPA không tương thích; không tự động build dylib trên iPhone vì dylib đã build sẵn. Việc chèn load command không chứng minh màn hình Login thực sự chặn game. Unity, app có kiểm tra chữ ký, anti-tamper hoặc nhiều launcher có thể cần tích hợp mã nguồn để khóa game đúng cách. Không dùng bản chưa kiểm thử để bán.
+1. Chép `native/android/arm64-v8a/libERILogin.so` vào `Assets/Plugins/Android/arm64-v8a/libERILogin.so`.
+2. Nếu build Android ARM32, chép thêm `native/android/armeabi-v7a/libERILogin.so` vào thư mục tương ứng.
+3. Chép `native/unity/ERILoginBootstrap.cs` vào `Assets/Scripts/`.
+4. Tạo scene đầu tiên tên **BootLogin** chứa một GameObject với `ERILoginBootstrap`. Cấu hình trường `nextScene` thành scene game thực tế (được thêm vào Build Settings). **Không đặt gameplay vào BootLogin**.
+5. Giữ quyền Android `INTERNET` trong manifest. Build APK/AAB bằng Unity. Unity load `.so` và màn hình BootLogin gọi hàm native `eri_login_check` để kích hoạt/xác thực key; chỉ chuyển vào game khi API trả `valid:true`.
+6. Cài và thử trên thiết bị Android thật. Chữ ký APK khi build phải thuộc ứng dụng do bạn quản lý.
 
-## 5. Với APK Android
+Android lưu ID UUID theo dữ liệu ứng dụng bằng PlayerPrefs, không phải chứng thực phần cứng bất biến. Hệ thống xác thực online; mất kết nối sẽ không mở scene game.
 
-- Dùng `injector/LOGIN.py` và `injector/ERIAndroidGate.dex` cạnh APK, chạy trong hệ thống có Java, apktool và Android SDK (zipalign, apksigner, keytool).
-- Python sẽ kiểm tra manifest, thay launcher khi tương thích, đóng gói DEX rồi ký APK nếu có đủ công cụ.
-- Không thể làm đầy đủ bước APK từ Python iPhone thông thường nếu thiếu apktool và Android SDK.
-- APK ký bằng khóa khác thường không cập nhật đè lên APK cũ.
+## iOS: gắn trực tiếp `ERILogin.dylib` vào ứng dụng bạn có thể build
 
-## 6. Máy chủ
+1. Trong dự án iOS mà bạn sở hữu, liên kết dylib trong target và cấu hình **Embed & Sign** (hoặc đóng gói dylib trong `Frameworks` và bảo đảm lệnh nạp Mach-O hợp lệ).
+2. Dylib hiện có install-name `@executable_path/Frameworks/ERILogin.dylib`, hiển thị cửa sổ nhập key khi được nạp.
+3. Ký app và dylib bằng chứng chỉ/hồ sơ tương thích, build IPA qua Xcode, cài và kiểm tra trên iPhone.
+4. Kiểm tra rằng ứng dụng chưa đi vào gameplay trước khi xác thực. Overlay chạy trong dylib không chứng minh mọi hoạt động nền của ứng dụng bị chặn; ứng dụng cần tích hợp gate tại khởi động nếu muốn kiểm soát hoàn toàn.
 
-- API hiện tại: `https://eri-login-api.onrender.com`.
-- Thiết bị khách KHÔNG được nhận ERI_ADMIN_KEY. Key Admin chỉ nhập trong ERI LOGIN ADMIN.
-- **Hạ tầng API hiện vẫn triển khai từ nhánh riêng `eri-login-render` trên EriMail.** Mã nguồn ứng dụng Admin và bộ công cụ được lưu trong Menumod. Việc chuyển API sang repo Menumod cần thay liên kết triển khai Render một cách an toàn, không xóa nhánh đang phục vụ khách.
+Với **IPA/APK đã biên dịch của bên thứ ba**, chỉ chép dylib/.so vào ZIP không làm nó tự nạp và không bảo đảm màn hình hiện lên. Muốn tích hợp chắc chắn phải có dự án nguồn hoặc hệ thống plugin/loader được ứng dụng hỗ trợ và quyền hợp lệ.
 
-## 7. Xác thực build
+## Máy chủ
 
-- Xem workflow `Build Menumod ERI Login Admin IPA` trên GitHub Actions.
-- Trình build kiểm tra parse và biên dịch Swift ARM64, `unzip -t` IPA.
-- Việc build thành công không thay thế kiểm thử API, tạo key, cài và mở IPA thực tế trên thiết bị.
+Render API: `https://eri-login-api.onrender.com`.
+
+Máy chủ hiện vẫn được triển khai từ nhánh riêng `eri-login-render` trong EriMail. Điều đó **không làm thay đổi chức năng shop**, nhưng muốn tách hạ tầng hoàn toàn cần chuyển service Render sang mã backend thuộc Menumod theo một kế hoạch riêng, không xóa nhánh đang được dùng.
+
+## Kiểm tra trước khi bán
+
+- Xác nhận GitHub Actions build `.so` và IPA Admin thành công.
+- Cài từng ứng dụng đã tích hợp lên thiết bị thực, thử key mới, key hết hạn, key bị khóa, và key trên thiết bị thứ hai.
+- Xác nhận game không truy cập gameplay trước khi API xác thực.
+- Không gọi một thư viện biên dịch thành công là IPA/APK đã gắn Login hoàn chỉnh.
