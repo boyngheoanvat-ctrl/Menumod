@@ -31,6 +31,7 @@ jobs:
           # Runtime must be key-only, never ship username/password login code.
           ! strings native/ios/ERILogin.dylib | grep -F '/api/login'
           grep -F 'MOD BY ERI' native/ios/ERILogin.m
+          grep -F 'ERILicenseAppID' native/ios/ERILogin.m
           strings native/ios/ERILogin.dylib | grep '/api/key/activate'
       - name: Update checksums and save dylib in Menumod
         shell: bash
@@ -42,6 +43,7 @@ jobs:
           git add native/ios/ERILogin.dylib native/SHA256SUMS.txt
           if ! git diff --cached --quiet; then
             git commit -m "Publish polished key-only ERI LOGIN iOS dylib"
+            git pull --rebase origin eri-login-admin
             git push origin HEAD:eri-login-admin
           fi
       - uses: actions/upload-artifact@v4
