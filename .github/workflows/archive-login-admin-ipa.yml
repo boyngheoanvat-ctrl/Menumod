@@ -1,0 +1,52 @@
+name: Save built ERI LOGIN ADMIN IPA into Menumod
+on:
+  push:
+    branches: [eri-login-admin]
+    paths:
+      - '.github/workflows/archive-login-admin-ipa.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+jobs:
+  archive-ipa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eri-login-admin
+          persist-credentials: true
+      - name: Retrieve already successful native iOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: Menumod-ERI-LOGIN-ADMIN-unsigned-IPA
+          repository: boyngheoanvat-ctrl/Menumod
+          run-id: 43474765174
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: build/download
+      - name: Validate compiled IPA and preserve permanent copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT="build/download/ERI_LOGIN_ADMIN_unsigned.ipa"
+          test -s "$INPUT"
+          unzip -tq "$INPUT"
+          unzip -Z1 "$INPUT" | grep -Fx 'Payload/ERILoginAdmin.app/ERILoginAdmin'
+          unzip -Z1 "$INPUT" | grep -Fx 'Payload/ERILoginAdmin.app/Info.plist'
+          mkdir -p releases
+          cp "$INPUT" releases/ERI_LOGIN_ADMIN_unsigned.ipa
+          (cd releases && sha256sum ERI_LOGIN_ADMIN_unsigned.ipa > SHA256SUMS.txt)
+      - name: Commit IPA to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add releases/ERI_LOGIN_ADMIN_unsigned.ipa releases/SHA256SUMS.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Archive verified ERI LOGIN ADMIN native IPA to Menumod"
+            git push origin HEAD:eri-login-admin
+          fi
+      - name: Final archive integrity check
+        run: (cd releases && sha256sum --check SHA256SUMS.txt)
