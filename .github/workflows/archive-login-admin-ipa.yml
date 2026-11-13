@@ -22,7 +22,7 @@ jobs:
         with:
           name: Menumod-ERI-LOGIN-ADMIN-unsigned-IPA
           repository: boyngheoanvat-ctrl/Menumod
-          run-id: 43474765174
+          run-id: 43498579837
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: build/download
       - name: Validate compiled IPA and preserve permanent copy
@@ -46,6 +46,7 @@ jobs:
           git add releases/ERI_LOGIN_ADMIN_unsigned.ipa releases/SHA256SUMS.txt
           if ! git diff --cached --quiet; then
             git commit -m "Archive verified ERI LOGIN ADMIN native IPA to Menumod"
+            git pull --rebase origin eri-login-admin
             git push origin HEAD:eri-login-admin
           fi
       - name: Final archive integrity check
