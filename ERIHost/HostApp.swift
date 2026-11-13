@@ -54,6 +54,8 @@ final class ERIHostViewController: UIViewController, WKScriptMessageHandler {
         webView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(webView)
         self.webView = webView
+        // Keep the app-owned overlay in front of the WebView so the toggle is observable.
+        view.bringSubviewToFront(nativeOverlay)
 
         NSLayoutConstraint.activate([
             nativeOverlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
