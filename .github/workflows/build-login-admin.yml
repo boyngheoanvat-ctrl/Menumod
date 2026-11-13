@@ -8,7 +8,7 @@ on:
       - '.github/workflows/build-login-admin.yml'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   build:
     runs-on: macos-15
@@ -37,3 +37,17 @@ jobs:
           name: Menumod-ERI-LOGIN-ADMIN-unsigned-IPA
           path: build/ERI_LOGIN_ADMIN_unsigned.ipa
           retention-days: 90
+      - name: Update permanent IPA copy in Menumod
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p releases
+          cp build/ERI_LOGIN_ADMIN_unsigned.ipa releases/ERI_LOGIN_ADMIN_unsigned.ipa
+          (cd releases && sha256sum ERI_LOGIN_ADMIN_unsigned.ipa > SHA256SUMS.txt)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/ERI_LOGIN_ADMIN_unsigned.ipa releases/SHA256SUMS.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Update ERI LOGIN ADMIN IPA with automatic one-time Admin key storage"
+            git push origin HEAD:eri-login-admin
+          fi
