@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           xcrun clang -arch arm64 -isysroot "$SDK" -miphoneos-version-min=16.0 \
-            -fobjc-arc -O2 -dynamiclib -framework UIKit -framework Foundation -framework Security \
+            -fobjc-arc -O2 -dynamiclib -framework UIKit -framework Foundation -framework Security -framework QuartzCore \
             -Wl,-install_name,@executable_path/Frameworks/ERILogin.dylib \
             native/ios/ERILogin.m -o native/ios/ERILogin.dylib
           lipo -info native/ios/ERILogin.dylib
