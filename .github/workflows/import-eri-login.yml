@@ -1,0 +1,47 @@
+name: Import ERI LOGIN injector files into Menumod
+on:
+  push:
+    branches: [eri-login-admin]
+    paths:
+      - '.github/workflows/import-eri-login.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import-files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eri-login-admin
+          persist-credentials: true
+      - name: Download and verify original ERI LOGIN components
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p injector
+          BASE="https://raw.githubusercontent.com/boyngheoanvat-ctrl/EriMail/eri-login-dylib-injector/backups/ERI_LOGIN"
+          for NAME in LOGIN.py ERILogin.dylib ERIAndroidGate.dex; do
+            curl --fail --location --show-error --retry 3 --output "injector/$NAME" "$BASE/$NAME"
+          done
+          cat > injector/SHA256SUMS.txt <<'SUMS'
+          5c5f41756add47bbbac370008fda77b2f5d573dbfb9556516e7c96f4d5f2adf1  LOGIN.py
+          166cdaf0caed3c74c7a3634819d02cf0c240da88eda88de44037ea4ce287d1df  ERILogin.dylib
+          850617ebfebd4226585d0ad2840b12045d91d5ce15f523a3a4cfcf724a10354e  ERIAndroidGate.dex
+          SUMS
+          (cd injector && sha256sum --check SHA256SUMS.txt)
+          python3 -m py_compile injector/LOGIN.py
+      - name: Commit files into Menumod
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add injector/LOGIN.py injector/ERILogin.dylib injector/ERIAndroidGate.dex injector/SHA256SUMS.txt
+          if git diff --cached --quiet; then
+            echo "Menumod files already current"
+          else
+            git commit -m "Store verified ERI LOGIN injector components in Menumod"
+            git push origin HEAD:eri-login-admin
+          fi
