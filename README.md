@@ -10,7 +10,8 @@ Dự án iOS **độc lập** gồm giao diện web và một cầu nối JavaSc
 - ✅ API `ping`, `getState`, `setFeature`, `reset`.
 - ✅ Native state và lưu `UserDefaults` cho ba chức năng demo: `overlay`, `darkCanvas`, `haptics`.
 - ✅ Trang `Web/index.html` có thể xem trên trình duyệt. Khi chạy ngoài ERI Host, nó thông báo **không có native bridge** thay vì giả báo bật thành công.
-- ✅ GitHub Actions build iOS Simulator, workflow kiểm tra web.
+- ✅ GitHub Actions build iOS Simulator và tạo gói IPA iOS ARM64 **chưa ký**, workflow kiểm tra web.
+- ✅ Công cụ kiểm tra tĩnh IPA + dump (không patch), xem `scripts/audit_game_archive.py` và `reports/ipa-audit.md`.
 - ❌ Không có tích hợp với tiến trình game, thay đổi bộ nhớ Unity, anti-cheat bypass, hay chỉnh sửa IPA gốc.
 - ❌ Chưa có IPA cài đặt được trên iPhone: phải build và ký app với chứng chỉ/hồ sơ phù hợp.
 
@@ -28,7 +29,7 @@ xcodegen generate
 xcodebuild -project ERIHost.xcodeproj -scheme ERIHost -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-Muốn cài trên iPhone thật cần mở project trong Xcode, chọn Team ký và build cho thiết bị. GitHub Actions chỉ tạo bản iOS Simulator chưa ký.
+Muốn cài trên iPhone thật cần mở project trong Xcode, chọn Team ký và build cho thiết bị. GitHub Actions tạo bản iOS Simulator và file `ERIHost-iOS-arm64-unsigned.ipa` cho thiết bị, nhưng **IPA này chưa ký, không cài trực tiếp được**; cũng không chứa game Liên Quân.
 
 ## API protocol v1
 

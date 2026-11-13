@@ -25,3 +25,27 @@ jobs:
           name: ERIHost-iOS-Simulator-unsigned
           path: build/Build/Products/Release-iphonesimulator/ERIHost.app
           if-no-files-found: error
+  ios-device-unsigned:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build unsigned arm64 iOS app
+        run: |
+          xcodebuild -project ERIHost.xcodeproj -scheme ERIHost -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build-device CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA (requires signing before installation)
+        run: |
+          mkdir -p staging/Payload
+          cp -R build-device/Build/Products/Release-iphoneos/ERIHost.app staging/Payload/ERIHost.app
+          (cd staging && zip -qry ../ERIHost-iOS-arm64-unsigned.ipa Payload)
+      - name: Upload unsigned device IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERIHost-iOS-arm64-unsigned-requires-signing
+          path: ERIHost-iOS-arm64-unsigned.ipa
+          if-no-files-found: error
