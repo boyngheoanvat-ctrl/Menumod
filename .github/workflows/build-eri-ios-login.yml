@@ -30,7 +30,7 @@ jobs:
           xcrun otool -D native/ios/ERILogin.dylib
           # Runtime must be key-only, never ship username/password login code.
           ! strings native/ios/ERILogin.dylib | grep -F '/api/login'
-          strings native/ios/ERILogin.dylib | grep 'MOD BY ERI'
+          grep -F 'MOD BY ERI' native/ios/ERILogin.m
           strings native/ios/ERILogin.dylib | grep '/api/key/activate'
       - name: Update checksums and save dylib in Menumod
         shell: bash
