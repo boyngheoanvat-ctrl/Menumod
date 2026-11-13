@@ -45,6 +45,17 @@ static NSString *eriDeviceID(void) {
 static NSString *eriText(NSString *input) {
     return [input stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
 }
+// A stable logical product identifier can be provided by the app owner in Info.plist.
+ // This prevents a re-signing operation that changes CFBundleIdentifier from silently
+ // changing which ERI license namespace is checked.
+static NSString *eriLicenseAppID(void) {
+    id configured=[NSBundle.mainBundle objectForInfoDictionaryKey:@"ERILicenseAppID"];
+    if ([configured isKindOfClass:NSString.class]) {
+        NSString *value=eriText((NSString *)configured);
+        if(value.length) return value;
+    }
+    return NSBundle.mainBundle.bundleIdentifier ?: @"";
+}
 static void eriUnlock(void) {
     eriUnlocked = YES;
     eriWindow.hidden = YES;
@@ -191,6 +202,15 @@ static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c)
  ]];
  self.status=eriMakeLabel(@"Dán key do Admin cấp để kích hoạt.",12,UIFontWeightMedium,eriBlue(0xB2C6DF));
  [panel addArrangedSubview:self.status];
+ UIButton *appIdButton=[UIButton buttonWithType:UIButtonTypeSystem];
+ NSString *appLabel=[NSString stringWithFormat:@"APP ID: %@   •   SAO CHÉP",eriLicenseAppID()];
+ [appIdButton setTitle:appLabel forState:UIControlStateNormal];
+ [appIdButton setTitleColor:eriBlue(0x80C9EE) forState:UIControlStateNormal];
+ appIdButton.titleLabel.font=[UIFont systemFontOfSize:10 weight:UIFontWeightSemibold];
+ appIdButton.titleLabel.numberOfLines=2;
+ appIdButton.titleLabel.textAlignment=NSTextAlignmentCenter;
+ [appIdButton addTarget:self action:@selector(copyAppID:) forControlEvents:UIControlEventTouchUpInside];
+ [panel addArrangedSubview:appIdButton];
  [stack addArrangedSubview:eriMakeLabel(@"XÁC MINH ONLINE • LIÊN KẾT THEO THIẾT BỊ\nMOD BY ERI NGUYỄN",
   10,UIFontWeightMedium,eriBlue(0x7791B4))];
  [self verifySaved];
@@ -200,6 +220,11 @@ static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c)
  self.bgLayer.frame=self.view.bounds;
  self.ctaLayer.frame=self.submitButton.bounds;
  self.ctaLayer.cornerRadius=14;
+}
+-(void)copyAppID:(id)sender {
+ UIPasteboard.generalPasteboard.string=eriLicenseAppID();
+ self.status.text=@"Đã sao chép App ID. Kiểm tra ID này trong ERI ADMIN.";
+ self.status.textColor=eriBlue(0x86E5EF);
 }
 -(void)pasteKey:(id)sender {
  NSString *p=UIPasteboard.generalPasteboard.string;
@@ -223,7 +248,7 @@ static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c)
     success:(void(^)(NSDictionary *response))onSuccess
     failure:(void(^)(NSString *message))onFailure {
     if (eriWorking) return;
-    NSString *bundle = NSBundle.mainBundle.bundleIdentifier;
+    NSString *bundle = eriLicenseAppID();
     if (!bundle.length) { self.status.text = @"Không xác định được Bundle ID."; return; }
     NSMutableDictionary *body = [payload mutableCopy];
     body[@"app_id"] = bundle;
