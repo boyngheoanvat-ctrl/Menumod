@@ -182,8 +182,8 @@ static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c)
                          (__bridge id)eriBlue(0x645AEA).CGColor];
  self.ctaLayer.startPoint=CGPointMake(0,.5);self.ctaLayer.endPoint=CGPointMake(1,.5);
  [self.submitButton.layer insertSublayer:self.ctaLayer atIndex:0];
- self.spinner=[[UIActivityIndicatorView alloc]initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
- self.spinner.hidesWhenStopped=YES;self.spinner.translatesAutoresizingMaskIntoConstraints=NO;
+ self.spinner=[[UIActivityIndicatorView alloc]initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+ self.spinner.hidesWhenStopped=YES;self.spinner.color=UIColor.whiteColor;self.spinner.translatesAutoresizingMaskIntoConstraints=NO;
  [self.submitButton addSubview:self.spinner];
  [NSLayoutConstraint activateConstraints:@[
   [self.spinner.trailingAnchor constraintEqualToAnchor:self.submitButton.trailingAnchor constant:-18],
@@ -279,7 +279,6 @@ static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c)
                return;
            }
            eriWrite(@"key", key);
-           eriWrite(@"session-token", @"");
            eriUnlock();
        }
        failure:^(NSString *errorText) {
