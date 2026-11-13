@@ -1,3 +1,3 @@
-fc5f4ec3f8c14e8c4c646de434e324bca9d4212860d6badd33e944f130102c4c  ios/ERILogin.dylib
+ee7a12e012b234c353a83c2399415dd7f6eca9883a265583dab49e1e4bcb36fd  ios/ERILogin.dylib
 413d44ad42ede450c0d22a6cf89b150134c7a4c457328d411f7402cb5a83171a  android/arm64-v8a/libERILogin.so
 3838ea77f0c80bce6189f45cf3be317edafe46be448d9798375ddac06e2ec35d  android/armeabi-v7a/libERILogin.so
