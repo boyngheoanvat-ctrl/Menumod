@@ -48,6 +48,24 @@ Không nhúng `ERI_ADMIN_KEY` trong game hoặc thư viện dùng cho khách.
 - `libERILogin.so` xác minh key qua API HTTPS. Unity chỉ tải scene game sau khi key hợp lệ.
 - Chỉ build APK/AAB qua dự án Unity có mã nguồn và quyền chỉnh sửa.
 
+## Sửa lỗi "Key không tồn tại" khi Admin vừa tạo key
+
+Máy chủ cấp key theo **App ID**, không chỉ theo chuỗi key. Key thật nhưng dùng ở IPA có Bundle ID khác sẽ bị từ chối.
+
+1. Mở ERI LOGIN mới trên ứng dụng khách, nhìn dòng **APP ID: ... • SAO CHÉP** và bấm để sao chép.
+2. Mở ERI LOGIN ADMIN, điền App ID **giống hệt** dòng đó rồi cấp key mới. Key cấp cho App ID khác không tự chuyển sang ứng dụng mới.
+3. Nếu bạn sở hữu dự án iOS và muốn giữ App ID cấp key ổn định khi đổi Bundle ID lúc ký, thêm khóa sau vào Info.plist **của ứng dụng khách** trước khi build/ký lại:
+
+```xml
+<key>ERILicenseAppID</key>
+<string>com.garena.game.kgvo</string>
+```
+
+Đây là ví dụ ứng với một key đã được cấp cho App ID trên. Các ứng dụng khác phải dùng App ID đã khai báo tương ứng trong Admin. **Không** thêm khóa này vào Info.plist của IPA Admin.
+
+4. Thư viện iOS mới đọc `ERILicenseAppID` nếu có; nếu không, dùng `CFBundleIdentifier` thực tế. Máy chủ trả `APP_ID_MISMATCH` cùng hai App ID để dễ xác định nguyên nhân, **không tự mở quyền cho ứng dụng khác**.
+5. Nếu key đã hết hạn hoặc bị khóa, cần gia hạn/mở khóa trong Admin; không cố kích hoạt lại bằng cách đổi App ID.
+
 ## Máy chủ
 
 API: `https://eri-login-api.onrender.com`.
