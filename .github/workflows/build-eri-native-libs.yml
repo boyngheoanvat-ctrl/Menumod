@@ -1,4 +1,4 @@
-name: Build ERI LOGIN native Android SO and preserve iOS dylib
+name: Build ERI LOGIN Android SO (Key Only)
 on:
   push:
     branches: [eri-login-admin]
@@ -51,16 +51,12 @@ jobs:
           "$TOOLCHAIN/llvm-readelf" -h native/android/armeabi-v7a/libERILogin.so
           "$TOOLCHAIN/llvm-nm" -D native/android/arm64-v8a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
           "$TOOLCHAIN/llvm-nm" -D native/android/armeabi-v7a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
-      - name: Preserve verified iOS dylib and retire old injector folder
+      - name: Verify Android libraries and current iOS dylib without replacing it
         shell: bash
         run: |
           set -euo pipefail
-          test -s injector/ERILogin.dylib
-          echo "166cdaf0caed3c74c7a3634819d02cf0c240da88eda88de44037ea4ce287d1df  injector/ERILogin.dylib" | sha256sum -c -
-          mkdir -p native/ios
-          cp injector/ERILogin.dylib native/ios/ERILogin.dylib
+          test -s native/ios/ERILogin.dylib
           file native/ios/ERILogin.dylib
-          git rm injector/ERILogin.dylib
           (
             cd native
             sha256sum ios/ERILogin.dylib android/arm64-v8a/libERILogin.so android/armeabi-v7a/libERILogin.so > SHA256SUMS.txt
@@ -72,9 +68,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A native/ios native/android/arm64-v8a native/android/armeabi-v7a native/SHA256SUMS.txt
+          git add -A native/android/arm64-v8a native/android/armeabi-v7a native/SHA256SUMS.txt
           if ! git diff --cached --quiet; then
-            git commit -m "Save ERI LOGIN native iOS dylib and Android SO libraries"
+            git commit -m "Save updated ERI native Android SO libraries"
+            git pull --rebase origin eri-login-admin
             git push origin HEAD:eri-login-admin
           fi
       - uses: actions/upload-artifact@v4
