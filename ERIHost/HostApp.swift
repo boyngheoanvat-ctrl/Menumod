@@ -19,7 +19,7 @@ final class ERIAppDelegate: UIResponder, UIApplicationDelegate {
     }
 }
 
-final class ERIHostViewController: UIViewController, WKScriptMessageHandler {
+final class ERIHostViewController: UIViewController, WKScriptMessageHandler, WKNavigationDelegate {
     private let handlerName = "eri"
     private let initialStates = ["overlay": false, "darkCanvas": false, "haptics": true]
     private var states: [String: Bool] = [:]
@@ -45,9 +45,12 @@ final class ERIHostViewController: UIViewController, WKScriptMessageHandler {
 
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep web preferences in WKWebKit's persistent store, not an ephemeral one.
+        configuration.websiteDataStore = WKWebsiteDataStore.default()
         configuration.userContentController.add(self, name: handlerName)
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = self
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -79,6 +82,12 @@ final class ERIHostViewController: UIViewController, WKScriptMessageHandler {
 
     deinit {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
+    }
+
+    // A WebKit process can be terminated by iOS for memory pressure.
+    // Reload the bundled page; the next getState call rehydrates native state.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
     }
 
     private func applyOwnedFeatures() {
