@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Security/Security.h>
+#import <QuartzCore/QuartzCore.h>
 
 static UIWindow *eriWindow = nil;
 static BOOL eriUnlocked = NO;
@@ -51,129 +52,172 @@ static void eriUnlock(void) {
 }
 
 @interface ERIGate : UIViewController <UITextFieldDelegate>
-@property(nonatomic,strong) UISegmentedControl *selector;
 @property(nonatomic,strong) UITextField *keyField;
-@property(nonatomic,strong) UITextField *userField;
-@property(nonatomic,strong) UITextField *passwordField;
 @property(nonatomic,strong) UIButton *submitButton;
 @property(nonatomic,strong) UILabel *status;
+@property(nonatomic,strong) CAGradientLayer *bgLayer;
+@property(nonatomic,strong) CAGradientLayer *ctaLayer;
+@property(nonatomic,strong) UIActivityIndicatorView *spinner;
 -(void)verifySaved;
 @end
 
 @implementation ERIGate
--(UITextField *)input:(NSString *)hint secure:(BOOL)secure {
-    UITextField *field = [UITextField new];
-    field.borderStyle = UITextBorderStyleRoundedRect;
-    field.backgroundColor = UIColor.whiteColor;
-    field.textColor = UIColor.blackColor;
-    field.placeholder = hint;
-    field.autocorrectionType = UITextAutocorrectionTypeNo;
-    field.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    field.clearButtonMode = UITextFieldViewModeWhileEditing;
-    field.secureTextEntry = secure;
-    field.adjustsFontSizeToFitWidth = YES;
-    field.minimumFontSize = 10;
-    field.delegate = self;
-    [field.heightAnchor constraintEqualToConstant:52].active = YES;
-    return field;
+static UIColor *eriBlue(unsigned rgb) {
+ return [UIColor colorWithRed:((rgb>>16)&255)/255.0 green:((rgb>>8)&255)/255.0
+                         blue:(rgb&255)/255.0 alpha:1];
+}
+static UILabel *eriMakeLabel(NSString *s,CGFloat size,UIFontWeight w,UIColor *c) {
+ UILabel *x=[UILabel new];x.text=s;x.textAlignment=NSTextAlignmentCenter;
+ x.numberOfLines=0;x.textColor=c;x.font=[UIFont systemFontOfSize:size weight:w];return x;
 }
 -(void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = [UIColor colorWithRed:0.025 green:0.054 blue:0.12 alpha:1];
-    UIStackView *stack = [UIStackView new];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 17;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:stack];
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.centerXAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerXAnchor],
-        [stack.centerYAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.centerYAnchor],
-        [stack.widthAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.widthAnchor multiplier:0.86],
-        [stack.widthAnchor constraintLessThanOrEqualToConstant:380]
-    ]];
-
-    UILabel *title = [UILabel new];
-    title.text = @"ERI LOGIN";
-    title.font = [UIFont boldSystemFontOfSize:32];
-    title.textColor = UIColor.whiteColor;
-    title.textAlignment = NSTextAlignmentCenter;
-    [stack addArrangedSubview:title];
-
-    self.selector = [[UISegmentedControl alloc] initWithItems:@[@"TÀI KHOẢN", @"KEY"]];
-    self.selector.selectedSegmentTintColor = UIColor.systemBlueColor;
-    [self.selector addTarget:self action:@selector(changeMode:) forControlEvents:UIControlEventValueChanged];
-    [self.selector.heightAnchor constraintEqualToConstant:42].active = YES;
-    [stack addArrangedSubview:self.selector];
-
-    self.keyField = [self input:@"ERI-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" secure:NO];
-    self.keyField.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
-    self.keyField.text = eriRead(@"key");
-    self.userField = [self input:@"Tên tài khoản ERI" secure:NO];
-    self.userField.text = eriRead(@"username");
-    self.passwordField = [self input:@"Mật khẩu do Admin cấp" secure:YES];
-    self.passwordField.textContentType = UITextContentTypePassword;
-
-    [stack addArrangedSubview:self.keyField];
-    [stack addArrangedSubview:self.userField];
-    [stack addArrangedSubview:self.passwordField];
-
-    self.submitButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.submitButton.backgroundColor = [UIColor colorWithRed:0.13 green:0.40 blue:1 alpha:1];
-    self.submitButton.layer.cornerRadius = 12;
-    self.submitButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
-    [self.submitButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    [self.submitButton.heightAnchor constraintEqualToConstant:54].active = YES;
-    [self.submitButton addTarget:self action:@selector(tap:) forControlEvents:UIControlEventTouchUpInside];
-    [stack addArrangedSubview:self.submitButton];
-
-    self.status = [UILabel new];
-    self.status.textAlignment = NSTextAlignmentCenter;
-    self.status.textColor = [UIColor colorWithWhite:0.87 alpha:1];
-    self.status.numberOfLines = 0;
-    [stack addArrangedSubview:self.status];
-
-    self.selector.selectedSegmentIndex = [eriRead(@"last-mode") isEqualToString:@"key"] ? 1 : 0;
-    [self changeMode:nil];
-    [self verifySaved];
+ [super viewDidLoad];
+ self.view.backgroundColor=eriBlue(0x071025);
+ self.bgLayer=[CAGradientLayer layer];
+ self.bgLayer.colors=@[(__bridge id)eriBlue(0x070C20).CGColor,
+                        (__bridge id)eriBlue(0x18335A).CGColor,
+                        (__bridge id)eriBlue(0x070D1F).CGColor];
+ self.bgLayer.startPoint=CGPointMake(0,0);self.bgLayer.endPoint=CGPointMake(1,1);
+ [self.view.layer insertSublayer:self.bgLayer atIndex:0];
+ UIScrollView *scroll=[UIScrollView new];
+ scroll.translatesAutoresizingMaskIntoConstraints=NO;
+ scroll.keyboardDismissMode=UIScrollViewKeyboardDismissModeOnDrag;
+ [self.view addSubview:scroll];
+ [NSLayoutConstraint activateConstraints:@[
+  [scroll.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
+  [scroll.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],
+  [scroll.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+  [scroll.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]
+ ]];
+ UIStackView *stack=[UIStackView new];stack.axis=UILayoutConstraintAxisVertical;
+ stack.spacing=20;stack.translatesAutoresizingMaskIntoConstraints=NO;
+ [scroll addSubview:stack];
+ [NSLayoutConstraint activateConstraints:@[
+  [stack.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:24],
+  [stack.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-24],
+  [stack.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor constant:50],
+  [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-30],
+  [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-48]
+ ]];
+ UIView *brand=[UIView new];brand.layer.cornerRadius=18;brand.layer.borderWidth=1;
+ brand.layer.borderColor=[eriBlue(0x88DEFF) colorWithAlphaComponent:.35].CGColor;
+ brand.backgroundColor=[eriBlue(0x183861) colorWithAlphaComponent:.85];
+ UILabel *brandName=eriMakeLabel(@"✦ MOD BY ERI NGUYỄN ✦",12,UIFontWeightBold,eriBlue(0x8DDEFF));
+ brandName.translatesAutoresizingMaskIntoConstraints=NO;[brand addSubview:brandName];
+ [NSLayoutConstraint activateConstraints:@[
+  [brand.heightAnchor constraintEqualToConstant:38],
+  [brandName.centerYAnchor constraintEqualToAnchor:brand.centerYAnchor],
+  [brandName.centerXAnchor constraintEqualToAnchor:brand.centerXAnchor]
+ ]];[stack addArrangedSubview:brand];
+ UIStackView *hero=[UIStackView new];hero.axis=UILayoutConstraintAxisVertical;
+ hero.alignment=UIStackViewAlignmentCenter;hero.spacing=13;[stack addArrangedSubview:hero];
+ UIView *emblem=[UIView new];emblem.backgroundColor=eriBlue(0x173962);
+ emblem.layer.cornerRadius=34;emblem.layer.borderColor=eriBlue(0x73D8FF).CGColor;
+ emblem.layer.borderWidth=1;[emblem.widthAnchor constraintEqualToConstant:68].active=YES;
+ [emblem.heightAnchor constraintEqualToConstant:68].active=YES;
+ UIImageView *shield=[[UIImageView alloc]initWithImage:[UIImage systemImageNamed:@"lock.shield.fill"]];
+ shield.translatesAutoresizingMaskIntoConstraints=NO;shield.tintColor=eriBlue(0x8BE4FF);
+ shield.contentMode=UIViewContentModeScaleAspectFit;[emblem addSubview:shield];
+ [NSLayoutConstraint activateConstraints:@[
+  [shield.centerXAnchor constraintEqualToAnchor:emblem.centerXAnchor],
+  [shield.centerYAnchor constraintEqualToAnchor:emblem.centerYAnchor],
+  [shield.widthAnchor constraintEqualToConstant:35],
+  [shield.heightAnchor constraintEqualToConstant:35]
+ ]];
+ [hero addArrangedSubview:emblem];
+ [hero addArrangedSubview:eriMakeLabel(@"ERI LOGIN",38,UIFontWeightHeavy,UIColor.whiteColor)];
+ [hero addArrangedSubview:eriMakeLabel(@"KÍCH HOẠT QUYỀN TRUY CẬP",12,UIFontWeightMedium,eriBlue(0xC1CFE7))];
+ [hero addArrangedSubview:eriMakeLabel(@"01 KEY  •  01 THIẾT BỊ",13,UIFontWeightBold,eriBlue(0x75E0E8))];
+ UIView *card=[UIView new];card.backgroundColor=eriBlue(0x14233D);
+ card.layer.cornerRadius=22;card.layer.borderWidth=1;
+ card.layer.borderColor=[eriBlue(0x648DC3) colorWithAlphaComponent:.4].CGColor;
+ [stack addArrangedSubview:card];
+ UIStackView *panel=[UIStackView new];panel.axis=UILayoutConstraintAxisVertical;
+ panel.spacing=14;panel.translatesAutoresizingMaskIntoConstraints=NO;[card addSubview:panel];
+ [NSLayoutConstraint activateConstraints:@[
+  [panel.leadingAnchor constraintEqualToAnchor:card.leadingAnchor constant:18],
+  [panel.trailingAnchor constraintEqualToAnchor:card.trailingAnchor constant:-18],
+  [panel.topAnchor constraintEqualToAnchor:card.topAnchor constant:21],
+  [panel.bottomAnchor constraintEqualToAnchor:card.bottomAnchor constant:-21]
+ ]];
+ UILabel *fieldLabel=eriMakeLabel(@"MÃ KÍCH HOẠT CỦA BẠN",12,UIFontWeightBold,eriBlue(0xD3E2FF));
+ fieldLabel.textAlignment=NSTextAlignmentLeft;[panel addArrangedSubview:fieldLabel];
+ self.keyField=[UITextField new];self.keyField.backgroundColor=eriBlue(0x0A162C);
+ self.keyField.textColor=UIColor.whiteColor;self.keyField.layer.cornerRadius=12;
+ self.keyField.layer.borderWidth=1;self.keyField.layer.borderColor=eriBlue(0x4F7CA7).CGColor;
+ self.keyField.font=[UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightSemibold];
+ self.keyField.minimumFontSize=9;self.keyField.adjustsFontSizeToFitWidth=YES;
+ self.keyField.clearButtonMode=UITextFieldViewModeWhileEditing;
+ self.keyField.autocorrectionType=UITextAutocorrectionTypeNo;
+ self.keyField.autocapitalizationType=UITextAutocapitalizationTypeAllCharacters;
+ self.keyField.keyboardType=UIKeyboardTypeASCIICapable;
+ self.keyField.returnKeyType=UIReturnKeyDone;self.keyField.delegate=self;
+ self.keyField.attributedPlaceholder=[[NSAttributedString alloc]initWithString:
+  @"ERI-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" attributes:@{
+  NSForegroundColorAttributeName:eriBlue(0x7B90B0),
+  NSFontAttributeName:[UIFont systemFontOfSize:11 weight:UIFontWeightMedium]}];
+ self.keyField.leftView=[[UIView alloc]initWithFrame:CGRectMake(0,0,12,1)];
+ self.keyField.leftViewMode=UITextFieldViewModeAlways;
+ self.keyField.text=eriRead(@"key");
+ [self.keyField.heightAnchor constraintEqualToConstant:54].active=YES;
+ [panel addArrangedSubview:self.keyField];
+ UIButton *paste=[UIButton buttonWithType:UIButtonTypeSystem];
+ [paste setTitle:@"DÁN KEY TỪ BỘ NHỚ TẠM" forState:UIControlStateNormal];
+ [paste setTitleColor:eriBlue(0x86D8FF) forState:UIControlStateNormal];
+ paste.titleLabel.font=[UIFont systemFontOfSize:12 weight:UIFontWeightBold];
+ paste.contentHorizontalAlignment=UIControlContentHorizontalAlignmentLeft;
+ [paste.heightAnchor constraintEqualToConstant:25].active=YES;
+ [paste addTarget:self action:@selector(pasteKey:) forControlEvents:UIControlEventTouchUpInside];
+ [panel addArrangedSubview:paste];
+ self.submitButton=[UIButton buttonWithType:UIButtonTypeSystem];
+ [self.submitButton setTitle:@"KÍCH HOẠT KEY  ›" forState:UIControlStateNormal];
+ self.submitButton.titleLabel.font=[UIFont systemFontOfSize:17 weight:UIFontWeightBold];
+ [self.submitButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+ self.submitButton.layer.cornerRadius=14;self.submitButton.layer.masksToBounds=YES;
+ [self.submitButton.heightAnchor constraintEqualToConstant:56].active=YES;
+ [self.submitButton addTarget:self action:@selector(tap:) forControlEvents:UIControlEventTouchUpInside];
+ [panel addArrangedSubview:self.submitButton];
+ self.ctaLayer=[CAGradientLayer layer];
+ self.ctaLayer.colors=@[(__bridge id)eriBlue(0x268AFF).CGColor,
+                         (__bridge id)eriBlue(0x645AEA).CGColor];
+ self.ctaLayer.startPoint=CGPointMake(0,.5);self.ctaLayer.endPoint=CGPointMake(1,.5);
+ [self.submitButton.layer insertSublayer:self.ctaLayer atIndex:0];
+ self.spinner=[[UIActivityIndicatorView alloc]initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
+ self.spinner.hidesWhenStopped=YES;self.spinner.translatesAutoresizingMaskIntoConstraints=NO;
+ [self.submitButton addSubview:self.spinner];
+ [NSLayoutConstraint activateConstraints:@[
+  [self.spinner.trailingAnchor constraintEqualToAnchor:self.submitButton.trailingAnchor constant:-18],
+  [self.spinner.centerYAnchor constraintEqualToAnchor:self.submitButton.centerYAnchor]
+ ]];
+ self.status=eriMakeLabel(@"Dán key do Admin cấp để kích hoạt.",12,UIFontWeightMedium,eriBlue(0xB2C6DF));
+ [panel addArrangedSubview:self.status];
+ [stack addArrangedSubview:eriMakeLabel(@"XÁC MINH ONLINE • LIÊN KẾT THEO THIẾT BỊ\nMOD BY ERI NGUYỄN",
+  10,UIFontWeightMedium,eriBlue(0x7791B4))];
+ [self verifySaved];
 }
--(void)changeMode:(id)sender {
-    BOOL keyMode = self.selector.selectedSegmentIndex == 1;
-    self.keyField.hidden = !keyMode;
-    self.userField.hidden = keyMode;
-    self.passwordField.hidden = keyMode;
-    [self.submitButton setTitle:(keyMode ? @"KÍCH HOẠT KEY" : @"ĐĂNG NHẬP TK + MK")
-                       forState:UIControlStateNormal];
-    self.status.text = keyMode
-        ? @"Key 1 thiết bị do ERI ADMIN cấp."
-        : @"Nhập đúng TÀI KHOẢN và MẬT KHẨU do ERI ADMIN cấp.";
-    eriWrite(@"last-mode", keyMode ? @"key" : @"account");
+-(void)viewDidLayoutSubviews {
+ [super viewDidLayoutSubviews];
+ self.bgLayer.frame=self.view.bounds;
+ self.ctaLayer.frame=self.submitButton.bounds;
+ self.ctaLayer.cornerRadius=14;
+}
+-(void)pasteKey:(id)sender {
+ NSString *p=UIPasteboard.generalPasteboard.string;
+ if(!p.length){self.status.text=@"Bộ nhớ tạm chưa có key.";return;}
+ self.keyField.text=p;
+ [self.keyField resignFirstResponder];
+ self.status.text=@"Đã dán key. Nhấn KÍCH HOẠT KEY.";
+ self.status.textColor=eriBlue(0x86E5EF);
 }
 -(BOOL)textFieldShouldReturn:(UITextField *)field {
-    [field resignFirstResponder];
-    [self tap:nil];
-    return YES;
+ [field resignFirstResponder];[self tap:nil];return YES;
 }
 -(void)verifySaved {
-    // Revalidate every launch. Store a session token, not the user's password.
-    NSString *token = eriRead(@"session-token");
-    if (token.length >= 32) {
-        self.selector.selectedSegmentIndex = 0;
-        [self changeMode:nil];
-        [self sendAccount:YES];
-    } else if (self.keyField.text.length > 0) {
-        self.selector.selectedSegmentIndex = 1;
-        [self changeMode:nil];
-        [self sendKey:NO];
-    }
+ NSString *key=eriText(self.keyField.text).uppercaseString;
+ if([key rangeOfString:@"^ERI-[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){5}$"
+                options:NSRegularExpressionSearch].location!=NSNotFound)[self sendKey:NO];
 }
--(void)tap:(id)sender {
-    [self.view endEditing:YES];
-    if (self.selector.selectedSegmentIndex == 1) {
-        [self sendKey:YES];
-    } else {
-        [self sendAccount:NO];
-    }
-}
+-(void)tap:(id)sender {[self.view endEditing:YES];[self sendKey:YES];}
 -(void)send:(NSString *)endpoint
        data:(NSDictionary *)payload
     success:(void(^)(NSDictionary *response))onSuccess
@@ -188,7 +232,9 @@ static void eriUnlock(void) {
     if (!encoded || jsonError) { self.status.text = @"Dữ liệu đăng nhập không hợp lệ."; return; }
     eriWorking = YES;
     self.submitButton.enabled = NO;
-    self.status.text = @"Đang xác minh với máy chủ...";
+    self.status.text = @"Đang xác minh key qua HTTPS...";
+    self.status.textColor = eriBlue(0x86E5EF);
+    [self.spinner startAnimating];
     NSURL *url = [NSURL URLWithString:[ERIBase stringByAppendingString:endpoint]];
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     req.HTTPMethod = @"POST";
@@ -209,6 +255,8 @@ static void eriUnlock(void) {
             ERIGate *ctl = weakSelf;
             if (!ctl) return;
             ctl.submitButton.enabled = YES;
+            [ctl.spinner stopAnimating];
+            if (!ok) ctl.status.textColor=eriBlue(0xFFACA8);
             if (ok) onSuccess(response);
             else onFailure(errorText);
         });
@@ -219,7 +267,8 @@ static void eriUnlock(void) {
     // Key format generated by the ERI key backend, not a username.
     NSString *pattern = @"^ERI-[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){5}$";
     if ([key rangeOfString:pattern options:NSRegularExpressionSearch].location == NSNotFound) {
-        self.status.text = @"Đây là ô KEY. Nếu được cấp TK/MK, hãy chọn TÀI KHOẢN.";
+        self.status.text = @"Sai định dạng. Dán key ERI-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX, không nhập tên tài khoản.";
+        self.status.textColor=eriBlue(0xFFACA8);
         return;
     }
     [self send:(activate ? @"/api/key/activate" : @"/api/key/verify")
@@ -235,44 +284,6 @@ static void eriUnlock(void) {
        }
        failure:^(NSString *errorText) {
            self.status.text = errorText;
-       }];
-}
--(void)sendAccount:(BOOL)verify {
-    NSString *username = eriText(self.userField.text);
-    NSString *password = self.passwordField.text ?: @"";
-    NSString *token = eriRead(@"session-token");
-    if (verify) {
-        if (token.length < 32) { self.status.text = @"Không có phiên đăng nhập."; return; }
-    } else if (username.length < 3 || username.length > 64 || password.length < 8) {
-        self.status.text = @"Nhập tên tài khoản và mật khẩu (tối thiểu 8 ký tự).";
-        return;
-    }
-    NSDictionary *payload = verify ? @{@"token":token} : @{@"username":username, @"password":password};
-    [self send:(verify ? @"/api/verify" : @"/api/login") data:payload
-       success:^(NSDictionary *response) {
-           if (verify && ![response[@"valid"] boolValue]) {
-               eriWrite(@"session-token", @"");
-               self.status.text = @"Phiên đã hết hạn. Vui lòng đăng nhập lại.";
-               return;
-           }
-           if (!verify) {
-               NSString *newToken = [response[@"token"] isKindOfClass:NSString.class] ? response[@"token"] : @"";
-               if (newToken.length < 32) {
-                   self.status.text = @"Máy chủ chưa trả về phiên đăng nhập hợp lệ.";
-                   return;
-               }
-               eriWrite(@"session-token", newToken);
-               eriWrite(@"username", username);
-           }
-           self.passwordField.text = @"";
-           eriWrite(@"key", @"");
-           eriUnlock();
-       }
-       failure:^(NSString *errorText) {
-           if (verify) eriWrite(@"session-token", @"");
-           self.status.text = verify
-             ? [NSString stringWithFormat:@"%@ Nhập TK/MK để đăng nhập lại.", errorText]
-             : errorText;
        }];
 }
 @end
