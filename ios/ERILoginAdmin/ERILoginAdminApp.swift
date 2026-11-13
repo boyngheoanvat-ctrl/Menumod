@@ -263,7 +263,14 @@ private struct LicenseUser: Decodable, Identifiable {
     }
 }
 
-private enum DeletionTarget {
+private enum DeletionTarget: Identifiable {
+    var id: String {
+        switch self {
+        case .account(let name): return "account:" + name
+        case .licenseKey(let id): return "key:" + id
+        }
+    }
+
     case account(String)
     case licenseKey(String)
 
@@ -292,7 +299,7 @@ private struct ERIHome: View {
     // Keep selected target independently of the alert's isPresented state.
     // SwiftUI may flip isPresented=false before executing the destructive action.
     @State private var deletionTarget: DeletionTarget?
-    @State private var showingDeleteConfirmation = false
+    @State private var showDeleteResult = false
 
     private var days: Int { Int(daysText) ?? 0 }
 
@@ -342,24 +349,56 @@ private struct ERIHome: View {
             .toolbar {
                 if m.busy { ProgressView() }
             }
-            .alert(deletionTarget?.title ?? "Xác nhận xóa", isPresented: $showingDeleteConfirmation) {
-                Button("Hủy", role: .cancel) { deletionTarget = nil }
-                Button("Xóa", role: .destructive) {
-                    // Capture BEFORE clearing: the alert can auto-dismiss before the action runs.
-                    guard let selected = deletionTarget else {
-                        m.message = "Chưa chọn tài khoản hoặc key cần xóa."
-                        return
+            .sheet(item: $deletionTarget) { selected in
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Image(systemName: "trash.circle.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.red)
+                        Text(selected.title)
+                            .font(.title2.bold())
+                        Text(selected.detail)
+                            .font(.body)
+                        Text("Sau khi xác nhận, app sẽ gửi lệnh đến máy chủ, tải lại danh sách và hiện kết quả.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Button(role: .destructive) {
+                            // The sheet provides an immutable item even after dismissal.
+                            let captured = selected
+                            deletionTarget = nil
+                            m.message = "Đang gửi lệnh xóa tới máy chủ..."
+                            Task {
+                                switch captured {
+                                case .account(let name):
+                                    await m.editUser("delete", app: app, username: name, days: days)
+                                case .licenseKey(let id):
+                                    await m.editKey("delete", app: app, id: id, days: days)
+                                }
+                                showDeleteResult = true
+                            }
+                        } label: {
+                            Text("XÁC NHẬN XÓA TRÊN MÁY CHỦ")
+                                .fontWeight(.bold)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                        .disabled(m.busy)
+                        Button("Hủy") { deletionTarget = nil }
+                            .frame(maxWidth: .infinity)
+                            .buttonStyle(.bordered)
                     }
-                    deletionTarget = nil
-                    switch selected {
-                    case .account(let name):
-                        Task { await m.editUser("delete", app: app, username: name, days: days) }
-                    case .licenseKey(let id):
-                        Task { await m.editKey("delete", app: app, id: id, days: days) }
-                    }
+                    .padding(24)
+                    .navigationTitle("Xác nhận xóa")
+                    .navigationBarTitleDisplayMode(.inline)
                 }
+                .presentationDetents([.height(400)])
+            }
+            .alert("Kết quả xóa", isPresented: $showDeleteResult) {
+                Button("Đóng", role: .cancel) {}
             } message: {
-                Text(deletionTarget?.detail ?? "Chọn mục cần xóa.")
+                Text(m.message)
             }
         }
     }
@@ -397,7 +436,7 @@ private struct ERIHome: View {
                         }
                         Button("Xóa", role: .destructive) {
                             deletionTarget = .account(user.username)
-                            showingDeleteConfirmation = true
+                            // The confirmation sheet observes deletionTarget directly.
                         }
                     }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
                 }.padding(.vertical, 5)
@@ -442,7 +481,7 @@ private struct ERIHome: View {
                         }
                         Button("Xóa", role: .destructive) {
                             deletionTarget = .licenseKey(item.id)
-                            showingDeleteConfirmation = true
+                            // The confirmation sheet observes deletionTarget directly.
                         }
                     }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
                 }.padding(.vertical, 5)
