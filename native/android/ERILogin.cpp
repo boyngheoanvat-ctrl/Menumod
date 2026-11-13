@@ -53,6 +53,31 @@ static bool valid_app(const char* app) {
     }
     return true;
 }
+// Exact ERI license format: ERI-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX.
+// Customer names and legacy username/password are not license keys.
+static bool valid_key(const char* key) {
+    if (!key) return false;
+    const std::string value(key);
+    if (value.size() != 33 || value.compare(0, 4, "ERI-") != 0) return false;
+    for (size_t i = 4; i < value.size(); ++i) {
+        if ((i - 4) % 5 == 4) {
+            if (value[i] != '-') return false;
+        } else {
+            const char ch = value[i];
+            if (!((ch >= 'A' && ch <= 'H') ||
+                  (ch >= 'J' && ch <= 'N') ||
+                  (ch >= 'P' && ch <= 'Z') ||
+                  (ch >= '2' && ch <= '9'))) return false;
+        }
+    }
+    return true;
+}
+
+extern "C" __attribute__((visibility("default")))
+const char* eri_login_version(void) {
+    return "MOD BY ERI NGUYEN | KEY ONLY | 1 KEY / 1 DEVICE | v2";
+}
+
 static bool valid_device(const char* dev) {
     if (!dev || std::char_traits<char>::length(dev) != 36) return false;
     for (int i=0; i<36; ++i) {
@@ -68,9 +93,8 @@ static bool valid_device(const char* dev) {
 // Returned by public API only: no Admin functionality is exposed to customers.
 extern "C" __attribute__((visibility("default")))
 int eri_login_check(const char* app, const char* key, const char* device, int activate) {
-    if (!valid_app(app) || !valid_device(device) || !key ||
-        std::char_traits<char>::length(key) < 15 ||
-        std::char_traits<char>::length(key) > 128) return -3;
+    if (!valid_app(app) || !valid_device(device) || !valid_key(key))
+        return -3;
     if (!g_vm) return -2;
     JNIEnv* e = nullptr;
     bool attached = false;
