@@ -1,0 +1,88 @@
+name: Build ERI LOGIN native Android SO and preserve iOS dylib
+on:
+  push:
+    branches: [eri-login-admin]
+    paths:
+      - 'native/android/ERILogin.cpp'
+      - 'native/unity/ERILoginBootstrap.cs'
+      - '.github/workflows/build-eri-native-libs.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eri-login-admin
+          persist-credentials: true
+      - name: Find Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$NDK" ]; then
+            echo "Android NDK missing on this runner."
+            exit 1
+          fi
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "Using Android NDK: $NDK"
+      - name: Compile both supported Android ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          test -x "$TOOLCHAIN/aarch64-linux-android23-clang++"
+          test -x "$TOOLCHAIN/armv7a-linux-androideabi23-clang++"
+          mkdir -p native/android/arm64-v8a native/android/armeabi-v7a
+          "$TOOLCHAIN/aarch64-linux-android23-clang++" \
+            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden \
+            -Wl,-z,relro,-z,now -Wl,--no-undefined \
+            native/android/ERILogin.cpp -o native/android/arm64-v8a/libERILogin.so
+          "$TOOLCHAIN/armv7a-linux-androideabi23-clang++" \
+            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden \
+            -Wl,-z,relro,-z,now -Wl,--no-undefined \
+            native/android/ERILogin.cpp -o native/android/armeabi-v7a/libERILogin.so
+          file native/android/*/libERILogin.so
+          "$TOOLCHAIN/llvm-readelf" -h native/android/arm64-v8a/libERILogin.so
+          "$TOOLCHAIN/llvm-readelf" -h native/android/armeabi-v7a/libERILogin.so
+          "$TOOLCHAIN/llvm-nm" -D native/android/arm64-v8a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
+          "$TOOLCHAIN/llvm-nm" -D native/android/armeabi-v7a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
+      - name: Preserve verified iOS dylib and retire old injector folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s injector/ERILogin.dylib
+          echo "166cdaf0caed3c74c7a3634819d02cf0c240da88eda88de44037ea4ce287d1df  injector/ERILogin.dylib" | sha256sum -c -
+          mkdir -p native/ios
+          cp injector/ERILogin.dylib native/ios/ERILogin.dylib
+          file native/ios/ERILogin.dylib
+          git rm injector/ERILogin.dylib
+          (
+            cd native
+            sha256sum ios/ERILogin.dylib android/arm64-v8a/libERILogin.so android/armeabi-v7a/libERILogin.so > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
+      - name: Commit native libraries permanently into Menumod
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A native/ios native/android/arm64-v8a native/android/armeabi-v7a native/SHA256SUMS.txt injector/ERILogin.dylib
+          if ! git diff --cached --quiet; then
+            git commit -m "Save ERI LOGIN native iOS dylib and Android SO libraries"
+            git push origin HEAD:eri-login-admin
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ERI-LOGIN-NATIVE-LIBS
+          path: |
+            native/ios/ERILogin.dylib
+            native/android/arm64-v8a/libERILogin.so
+            native/android/armeabi-v7a/libERILogin.so
+            native/SHA256SUMS.txt
+          retention-days: 90
