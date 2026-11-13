@@ -1,4 +1,4 @@
-name: Build ERI LOGIN iOS Dylib (Key and Account)
+name: Build ERI LOGIN iOS Key-Only Dylib
 on:
   push:
     branches: [eri-login-admin]
@@ -17,7 +17,7 @@ jobs:
         with:
           ref: eri-login-admin
           persist-credentials: true
-      - name: Compile ERI native Login dylib with two modes
+      - name: Compile iOS ERI native Login dylib — 1 key / 1 device
         shell: bash
         run: |
           set -euo pipefail
@@ -28,7 +28,9 @@ jobs:
             native/ios/ERILogin.m -o native/ios/ERILogin.dylib
           lipo -info native/ios/ERILogin.dylib
           xcrun otool -D native/ios/ERILogin.dylib
-          strings native/ios/ERILogin.dylib | grep '/api/login'
+          # Runtime must be key-only, never ship username/password login code.
+          ! strings native/ios/ERILogin.dylib | grep -F '/api/login'
+          strings native/ios/ERILogin.dylib | grep 'MOD BY ERI'
           strings native/ios/ERILogin.dylib | grep '/api/key/activate'
       - name: Update checksums and save dylib in Menumod
         shell: bash
@@ -39,11 +41,11 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add native/ios/ERILogin.dylib native/SHA256SUMS.txt
           if ! git diff --cached --quiet; then
-            git commit -m "Publish dual-mode ERI LOGIN iOS dylib (account and key)"
+            git commit -m "Publish polished key-only ERI LOGIN iOS dylib"
             git push origin HEAD:eri-login-admin
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: ERI-iOS-login-account-key-dylib
+          name: ERI-iOS-key-only-dylib
           path: native/ios/ERILogin.dylib
           retention-days: 90
