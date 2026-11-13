@@ -279,6 +279,10 @@ private struct ERIAdminHome: View {
                             .padding(13)
                             .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
                         inputField("App ID (Bundle ID / Package)", text: $appID)
+                        Text("App ID phải giống mục APP ID hiển thị trong ERI LOGIN của khách. Nếu IPA đổi Bundle ID khi ký, hãy dùng App ID được hiển thị ở đó.")
+                            .font(.caption)
+                            .foregroundStyle(ERIStyle.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                         primary("XÁC THỰC & ĐỒNG BỘ", symbol: "arrow.triangle.2.circlepath") {
                             Task { await model.refresh(app: appID) }
                         }
