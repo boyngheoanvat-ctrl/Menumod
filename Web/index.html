@@ -54,7 +54,21 @@
       const output = document.getElementById("output");
       const switches = Array.from(document.querySelectorAll("[data-feature]"));
       const reset = document.getElementById("reset");
+      const cachedKey = "eri.host.lastKnownState.v2";
       let connected = false;
+      // Cached state is informative only; never pretend a native action ran
+      // when iOS terminated the host or its WebView.
+      try {
+        const cache = JSON.parse(localStorage.getItem(cachedKey) || "null");
+        if (cache && cache.features) {
+          switches.forEach(button => {
+            if (typeof cache.features[button.dataset.feature] === "boolean") {
+              button.setAttribute("aria-checked",String(cache.features[button.dataset.feature]));
+            }
+          });
+          status.textContent = "● Đã khôi phục trạng thái lần trước. Đang đồng bộ lại với ứng dụng iOS...";
+        }
+      } catch {} 
       let nextId = 0;
       const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.eri;
 
@@ -92,6 +106,13 @@
         output.textContent = JSON.stringify(result,null,2);
         const isHost = result.ok === true && result.payload && result.payload.host === "ERIHost";
         connected = !!isHost;
+        if (connected) {
+          try {
+            localStorage.setItem(cachedKey, JSON.stringify({
+              features: result.payload.features, timestamp: Date.now()
+            }));
+          } catch {}
+        }
         document.body.classList.toggle("dim", connected && result.payload.features.darkCanvas === true);
         status.classList.toggle("connected", connected);
         status.textContent = connected ?
@@ -117,6 +138,12 @@
       }));
       document.getElementById("reload").addEventListener("click",refresh);
       reset.addEventListener("click", async () => {show(await call("reset"));});
+      // When returning from another app or WebKit suspends/restarts, always
+      // re-read the authoritative native UserDefaults-backed state.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") refresh();
+      });
+      window.addEventListener("pageshow", refresh);
       refresh();
     })();
   </script>
