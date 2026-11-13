@@ -64,6 +64,7 @@ private struct LicenseUser: Decodable, Identifiable {
 
 @MainActor private final class ERIAdmin: ObservableObject {
     @Published var secret = ERIVault.read()
+    @Published var isSecretSaved = !ERIVault.read().isEmpty
     @Published var users: [LicenseUser] = []
     @Published var keys: [LicenseKey] = []
     @Published var issuedKey = ""
@@ -71,10 +72,11 @@ private struct LicenseUser: Decodable, Identifiable {
     @Published var busy = false
     private let origin = "https://eri-login-api.onrender.com"
 
-    func storeSecret() {
-        secret = secret.trimmingCharacters(in: .whitespacesAndNewlines)
-        ERIVault.save(secret)
-        message = secret.isEmpty ? "Đã xóa ERI_ADMIN_KEY khỏi Keychain." : "Đã lưu ERI_ADMIN_KEY vào Keychain."
+    func forgetSecret() {
+        ERIVault.save("")
+        secret = ""
+        isSecretSaved = false
+        message = "Đã xóa khóa Admin trên thiết bị. Nhập khóa mới để tiếp tục."
     }
 
     private func request(_ route: String, body: [String: Any]? = nil) async throws -> Data {
@@ -98,6 +100,11 @@ private struct LicenseUser: Decodable, Identifiable {
                         ?? "HTTP \(http.statusCode)"
             throw NSError(domain: "ERI", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: cause])
         }
+        // Save ONLY after the server accepts this Admin key, never before validation.
+        if ERIVault.read() != token {
+            ERIVault.save(token)
+        }
+        isSecretSaved = (ERIVault.read() == token)
         return data
     }
 
@@ -214,7 +221,14 @@ private struct ERIHome: View {
                 Section("Cấu hình Admin") {
                     SecureField("ERI_ADMIN_KEY", text: $m.secret)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button("Lưu khóa Admin trong Keychain") { m.storeSecret() }
+                    if m.isSecretSaved {
+                        Label("Đã lưu khóa Admin trên iPhone", systemImage: "checkmark.shield.fill")
+                            .foregroundStyle(.green)
+                        Button("Xóa khóa đã lưu / đổi khóa") { m.forgetSecret() }
+                    } else {
+                        Text("Nhập ERI_ADMIN_KEY một lần. Bấm tải danh sách hoặc tạo tài khoản/key để xác thực; sau khi thành công, app tự lưu khóa trong Keychain. Những lần sau tự điền.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     TextField("App ID (Bundle ID / Package)", text: $app)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
