@@ -1,0 +1,39 @@
+name: Build Menumod ERI Login Admin IPA
+on:
+  push:
+    branches:
+      - eri-login-admin
+    paths:
+      - 'ios/ERILoginAdmin/**'
+      - '.github/workflows/build-login-admin.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build unsigned native iPhone Admin IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p build/Payload/ERILoginAdmin.app
+          cp ios/ERILoginAdmin/Info.plist build/Payload/ERILoginAdmin.app/Info.plist
+          xcrun swiftc -frontend -parse ios/ERILoginAdmin/ERILoginAdminApp.swift
+          xcrun swiftc -sdk "$SDK" -target arm64-apple-ios16.0 -parse-as-library -O \
+            -framework SwiftUI -framework UIKit -framework Security \
+            ios/ERILoginAdmin/ERILoginAdminApp.swift -o build/Payload/ERILoginAdmin.app/ERILoginAdmin
+          printf 'APPL????' > build/Payload/ERILoginAdmin.app/PkgInfo
+          lipo -info build/Payload/ERILoginAdmin.app/ERILoginAdmin
+          cd build
+          zip -q -r ERI_LOGIN_ADMIN_unsigned.ipa Payload
+          unzip -tq ERI_LOGIN_ADMIN_unsigned.ipa
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Menumod-ERI-LOGIN-ADMIN-unsigned-IPA
+          path: build/ERI_LOGIN_ADMIN_unsigned.ipa
+          retention-days: 90
