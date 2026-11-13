@@ -195,9 +195,26 @@ private struct LicenseUser: Decodable, Identifiable {
             guard ["extend", "disable", "enable", "delete"].contains(operation) else { return }
             var body: [String: Any] = ["app_id": app, "username": username]
             if operation == "extend" { body["days"] = days }
-            _ = try await request("/api/admin/" + operation, body: body)
+            let response = try await request("/api/admin/" + operation, body: body)
+            if operation == "delete" {
+                let payload = try JSONSerialization.jsonObject(with: response) as? [String: Any]
+                guard payload?["deleted"] as? Bool == true else {
+                    throw NSError(domain: "ERI", code: 502, userInfo: [
+                        NSLocalizedDescriptionKey: "Máy chủ chưa xác nhận xóa tài khoản."
+                    ])
+                }
+            }
             try await listUsers(app)
-            message = "Đã cập nhật tài khoản \(username): \(operation)."
+            if operation == "delete" {
+                guard !users.contains(where: { $0.username == username }) else {
+                    throw NSError(domain: "ERI", code: 502, userInfo: [
+                        NSLocalizedDescriptionKey: "Tài khoản vẫn tồn tại sau khi xóa. Vui lòng thử lại."
+                    ])
+                }
+                message = "Đã xóa tài khoản \(username) khỏi máy chủ."
+            } else {
+                message = "Đã cập nhật tài khoản \(username): \(operation)."
+            }
         } catch { message = error.localizedDescription }
     }
 
@@ -222,10 +239,45 @@ private struct LicenseUser: Decodable, Identifiable {
             guard ["extend", "disable", "enable", "reset-device", "delete"].contains(operation) else { return }
             var body: [String: Any] = ["app_id": app, "id": id]
             if operation == "extend" { body["days"] = days }
-            _ = try await request("/api/admin/key/" + operation, body: body)
+            let response = try await request("/api/admin/key/" + operation, body: body)
+            if operation == "delete" {
+                let payload = try JSONSerialization.jsonObject(with: response) as? [String: Any]
+                guard payload?["deleted"] as? Bool == true else {
+                    throw NSError(domain: "ERI", code: 502, userInfo: [
+                        NSLocalizedDescriptionKey: "Máy chủ chưa xác nhận xóa key."
+                    ])
+                }
+            }
             try await listKeys(app)
-            message = "Đã cập nhật key: \(operation)."
+            if operation == "delete" {
+                guard !keys.contains(where: { $0.id == id }) else {
+                    throw NSError(domain: "ERI", code: 502, userInfo: [
+                        NSLocalizedDescriptionKey: "Key vẫn tồn tại sau khi xóa."
+                    ])
+                }
+                message = "Đã xóa key khỏi máy chủ."
+            } else {
+                message = "Đã cập nhật key: \(operation)."
+            }
         } catch { message = error.localizedDescription }
+    }
+}
+
+private enum DeletionTarget {
+    case account(String)
+    case licenseKey(String)
+
+    var title: String {
+        switch self {
+        case .account: return "Xóa tài khoản?"
+        case .licenseKey: return "Xóa key?"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .account(let name): return "Bạn chắc chắn muốn xóa tài khoản \(name)? Khách sẽ không thể đăng nhập."
+        case .licenseKey: return "Xóa key vĩnh viễn, khách sẽ không thể kích hoạt hoặc xác minh."
+        }
     }
 }
 
@@ -237,8 +289,10 @@ private struct ERIHome: View {
     @State private var password = ""
     @State private var buyer = ""
     @State private var daysText = "30"
-    @State private var pendingDeleteUser: String?
-    @State private var pendingDeleteKey: String?
+    // Keep selected target independently of the alert's isPresented state.
+    // SwiftUI may flip isPresented=false before executing the destructive action.
+    @State private var deletionTarget: DeletionTarget?
+    @State private var showingDeleteConfirmation = false
 
     private var days: Int { Int(daysText) ?? 0 }
 
@@ -288,33 +342,24 @@ private struct ERIHome: View {
             .toolbar {
                 if m.busy { ProgressView() }
             }
-            .alert("Xóa tài khoản?", isPresented: Binding(
-                get: { pendingDeleteUser != nil },
-                set: { if !$0 { pendingDeleteUser = nil } }
-            )) {
-                Button("Hủy", role: .cancel) { pendingDeleteUser = nil }
+            .alert(deletionTarget?.title ?? "Xác nhận xóa", isPresented: $showingDeleteConfirmation) {
+                Button("Hủy", role: .cancel) { deletionTarget = nil }
                 Button("Xóa", role: .destructive) {
-                    if let user = pendingDeleteUser {
-                        Task { await m.editUser("delete", app: app, username: user, days: days) }
+                    // Capture BEFORE clearing: the alert can auto-dismiss before the action runs.
+                    guard let selected = deletionTarget else {
+                        m.message = "Chưa chọn tài khoản hoặc key cần xóa."
+                        return
                     }
-                    pendingDeleteUser = nil
-                }
-            } message: {
-                Text("Tài khoản sẽ không thể đăng nhập.")
-            }
-            .alert("Xóa key?", isPresented: Binding(
-                get: { pendingDeleteKey != nil },
-                set: { if !$0 { pendingDeleteKey = nil } }
-            )) {
-                Button("Hủy", role: .cancel) { pendingDeleteKey = nil }
-                Button("Xóa", role: .destructive) {
-                    if let id = pendingDeleteKey {
+                    deletionTarget = nil
+                    switch selected {
+                    case .account(let name):
+                        Task { await m.editUser("delete", app: app, username: name, days: days) }
+                    case .licenseKey(let id):
                         Task { await m.editKey("delete", app: app, id: id, days: days) }
                     }
-                    pendingDeleteKey = nil
                 }
             } message: {
-                Text("Key sẽ không thể kích hoạt hoặc xác minh.")
+                Text(deletionTarget?.detail ?? "Chọn mục cần xóa.")
             }
         }
     }
@@ -350,7 +395,10 @@ private struct ERIHome: View {
                         Button(user.disabled ? "Mở" : "Khóa") {
                             Task { await m.editUser(user.disabled ? "enable" : "disable", app: app, username: user.username, days: days) }
                         }
-                        Button("Xóa", role: .destructive) { pendingDeleteUser = user.username }
+                        Button("Xóa", role: .destructive) {
+                            deletionTarget = .account(user.username)
+                            showingDeleteConfirmation = true
+                        }
                     }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
                 }.padding(.vertical, 5)
             }
@@ -392,7 +440,10 @@ private struct ERIHome: View {
                         Button("Reset máy") {
                             Task { await m.editKey("reset-device", app: app, id: item.id, days: days) }
                         }
-                        Button("Xóa", role: .destructive) { pendingDeleteKey = item.id }
+                        Button("Xóa", role: .destructive) {
+                            deletionTarget = .licenseKey(item.id)
+                            showingDeleteConfirmation = true
+                        }
                     }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
                 }.padding(.vertical, 5)
             }
