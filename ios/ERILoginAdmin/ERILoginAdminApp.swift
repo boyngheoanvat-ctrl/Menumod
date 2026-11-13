@@ -76,6 +76,8 @@ private struct LicenseUser: Decodable, Identifiable {
         ERIVault.save("")
         secret = ""
         isSecretSaved = false
+        users = []
+        keys = []
         message = "Đã xóa khóa Admin trên thiết bị. Nhập khóa mới để tiếp tục."
     }
 
@@ -96,6 +98,16 @@ private struct LicenseUser: Decodable, Identifiable {
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         if !(200...299).contains(http.statusCode) {
+            if http.statusCode == 403 {
+                // Never keep stale Admin credentials or display stale records after a 403.
+                if ERIVault.read() == token { ERIVault.save("") }
+                isSecretSaved = false
+                users = []
+                keys = []
+                throw NSError(domain: "ERI", code: 403, userInfo: [
+                    NSLocalizedDescriptionKey: "Khóa ERI_ADMIN_KEY không khớp máy chủ (403). Dán lại khóa đúng rồi bấm Kiểm tra & Lưu khóa."
+                ])
+            }
             let cause = (try? JSONDecoder().decode(APIError.self, from: data).error)
                         ?? "HTTP \(http.statusCode)"
             throw NSError(domain: "ERI", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: cause])
@@ -130,6 +142,21 @@ private struct LicenseUser: Decodable, Identifiable {
     private func listKeys(_ app: String) async throws {
         let data = try await request(query("/api/admin/key/list", app: app))
         keys = try JSONDecoder().decode(KeyList.self, from: data).keys
+    }
+
+    func verifyAdminKey(app: String) async {
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            try validate(app)
+            // A read-only endpoint confirms this key is accepted by the server.
+            // request() persists it only on HTTP 2xx.
+            try await listUsers(app)
+            message = isSecretSaved
+                ? "Xác thực Admin thành công. Đã lưu khóa vào Keychain; những lần sau tự đăng nhập."
+                : "Máy chủ chấp nhận khóa, nhưng Keychain không lưu được. Kiểm tra quyền ứng dụng."
+        } catch { message = error.localizedDescription }
     }
 
     func refreshUsers(app: String) async {
@@ -226,9 +253,12 @@ private struct ERIHome: View {
                             .foregroundStyle(.green)
                         Button("Xóa khóa đã lưu / đổi khóa") { m.forgetSecret() }
                     } else {
-                        Text("Nhập ERI_ADMIN_KEY một lần. Bấm tải danh sách hoặc tạo tài khoản/key để xác thực; sau khi thành công, app tự lưu khóa trong Keychain. Những lần sau tự điền.")
+                        Text("Dán khóa Admin đúng một lần rồi kiểm tra. Chỉ khóa được máy chủ chấp nhận mới được lưu vào Keychain.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                    Button("Kiểm tra & Lưu khóa Admin") {
+                        Task { await m.verifyAdminKey(app: app) }
+                    }.disabled(m.busy)
                     TextField("App ID (Bundle ID / Package)", text: $app)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                 }
@@ -250,6 +280,11 @@ private struct ERIHome: View {
                 }
             }
             .navigationTitle("ERI LOGIN ADMIN")
+            .task {
+                if m.isSecretSaved {
+                    await m.verifyAdminKey(app: app)
+                }
+            }
             .toolbar {
                 if m.busy { ProgressView() }
             }
