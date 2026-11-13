@@ -3,8 +3,9 @@ import Foundation
 import Security
 import UIKit
 
-// ERI ADMIN for Menumod — native iPhone app.
-// Admin secret is entered on-device, never embedded into the distributable IPA.
+// ERI LOGIN ADMIN • MOD BY ERI NGUYỄN
+// Key-only licensing manager. No customer password or legacy-account UI.
+// Keep existing iOS Keychain service to preserve the saved Admin secret.
 private enum ERIVault {
     static let service = "vn.eri.menumod.admin"
     static let name = "eri-admin-key"
@@ -41,9 +42,9 @@ private enum ERIVault {
     }
 }
 
+
 private struct APIError: Decodable { let error: String? }
 private struct KeyList: Decodable { let keys: [LicenseKey] }
-private struct UserList: Decodable { let users: [LicenseUser] }
 private struct IssuedKey: Decodable { let key: String }
 private struct LicenseKey: Decodable, Identifiable {
     let id: String
@@ -54,69 +55,58 @@ private struct LicenseKey: Decodable, Identifiable {
     let device_bound: Bool
     let expired: Bool
 }
-private struct LicenseUser: Decodable, Identifiable {
-    var id: String { username }
-    let username: String
-    let expires_at: String
-    let disabled: Bool
-    let expired: Bool
+private struct DeleteTarget: Identifiable {
+    let id: String
+    let label: String
 }
 
-@MainActor private final class ERIAdmin: ObservableObject {
+@MainActor private final class ERIKeyManager: ObservableObject {
     @Published var secret = ERIVault.read()
-    @Published var isSecretSaved = !ERIVault.read().isEmpty
-    @Published var users: [LicenseUser] = []
+    @Published var saved = !ERIVault.read().isEmpty
     @Published var keys: [LicenseKey] = []
     @Published var issuedKey = ""
-    @Published var message = "Nhập khóa quản trị, chọn mục và tạo tài khoản hoặc key."
+    @Published var message = "Sẵn sàng quản lý key thiết bị."
     @Published var busy = false
     private let origin = "https://eri-login-api.onrender.com"
 
-    func forgetSecret() {
+    func clearSecret() {
         ERIVault.save("")
         secret = ""
-        isSecretSaved = false
-        users = []
+        saved = false
         keys = []
-        message = "Đã xóa khóa Admin trên thiết bị. Nhập khóa mới để tiếp tục."
+        message = "Đã xóa khóa quản trị khỏi iPhone."
     }
 
     private func request(_ route: String, body: [String: Any]? = nil) async throws -> Data {
         let token = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard token.count >= 32 else {
-            throw NSError(domain: "ERI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cần nhập ERI_ADMIN_KEY hợp lệ."])
+            throw NSError(domain: "ERI", code: 1, userInfo: [NSLocalizedDescriptionKey: "Nhập ERI_ADMIN_KEY để quản lý key."])
         }
         guard let url = URL(string: origin + route) else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.timeoutInterval = 95
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(token, forHTTPHeaderField: "X-ERI-ADMIN-KEY")
-        if let body = body {
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+        if let payload = body {
             req.httpMethod = "POST"
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            req.httpBody = try JSONSerialization.data(withJSONObject: payload)
         }
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        if !(200...299).contains(http.statusCode) {
+        guard (200...299).contains(http.statusCode) else {
             if http.statusCode == 403 {
-                // Never keep stale Admin credentials or display stale records after a 403.
                 if ERIVault.read() == token { ERIVault.save("") }
-                isSecretSaved = false
-                users = []
+                saved = false
                 keys = []
-                throw NSError(domain: "ERI", code: 403, userInfo: [
-                    NSLocalizedDescriptionKey: "Khóa ERI_ADMIN_KEY không khớp máy chủ (403). Dán lại khóa đúng rồi bấm Kiểm tra & Lưu khóa."
-                ])
+                throw NSError(domain: "ERI", code: 403, userInfo: [NSLocalizedDescriptionKey: "Khóa Admin không hợp lệ (403). Kiểm tra lại ERI_ADMIN_KEY."])
             }
             let cause = (try? JSONDecoder().decode(APIError.self, from: data).error)
-                        ?? "HTTP \(http.statusCode)"
+                        ?? "Lỗi máy chủ HTTP \(http.statusCode)"
             throw NSError(domain: "ERI", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: cause])
         }
-        // Save ONLY after the server accepts this Admin key, never before validation.
-        if ERIVault.read() != token {
-            ERIVault.save(token)
-        }
-        isSecretSaved = (ERIVault.read() == token)
+        if ERIVault.read() != token { ERIVault.save(token) }
+        saved = ERIVault.read() == token
         return data
     }
 
@@ -124,374 +114,330 @@ private struct LicenseUser: Decodable, Identifiable {
         guard app.range(of: "^[A-Za-z0-9_.-]{2,128}$", options: .regularExpression) != nil else {
             throw NSError(domain: "ERI", code: 2, userInfo: [NSLocalizedDescriptionKey: "App ID không hợp lệ."])
         }
-        if let days = days, !(1...3650).contains(days) {
-            throw NSError(domain: "ERI", code: 3, userInfo: [NSLocalizedDescriptionKey: "Số ngày phải từ 1 đến 3650."])
+        if let d = days, !(1...3650).contains(d) {
+            throw NSError(domain: "ERI", code: 3, userInfo: [NSLocalizedDescriptionKey: "Số ngày phải từ 1–3650."])
         }
     }
-
-    private func query(_ path: String, app: String) -> String {
+    private func fetchKeys(_ app: String) async throws {
         var c = URLComponents()
         c.queryItems = [URLQueryItem(name: "app_id", value: app)]
-        return path + "?" + (c.percentEncodedQuery ?? "")
+        let route = "/api/admin/key/list?" + (c.percentEncodedQuery ?? "")
+        keys = try JSONDecoder().decode(KeyList.self, from: try await request(route)).keys
     }
-
-    private func listUsers(_ app: String) async throws {
-        let data = try await request(query("/api/admin/list", app: app))
-        users = try JSONDecoder().decode(UserList.self, from: data).users
-    }
-    private func listKeys(_ app: String) async throws {
-        let data = try await request(query("/api/admin/key/list", app: app))
-        keys = try JSONDecoder().decode(KeyList.self, from: data).keys
-    }
-
-    func verifyAdminKey(app: String) async {
+    private func perform(_ work: () async throws -> String) async {
         guard !busy else { return }
         busy = true
         defer { busy = false }
-        do {
+        do { message = try await work() }
+        catch { message = error.localizedDescription }
+    }
+    func refresh(app: String) async {
+        await perform {
             try validate(app)
-            // A read-only endpoint confirms this key is accepted by the server.
-            // request() persists it only on HTTP 2xx.
-            try await listUsers(app)
-            message = isSecretSaved
-                ? "Xác thực Admin thành công. Đã lưu khóa vào Keychain; những lần sau tự đăng nhập."
-                : "Máy chủ chấp nhận khóa, nhưng Keychain không lưu được. Kiểm tra quyền ứng dụng."
-        } catch { message = error.localizedDescription }
+            try await fetchKeys(app)
+            return "Đã đồng bộ \(keys.count) key từ máy chủ."
+        }
     }
-
-    func refreshUsers(app: String) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do { try validate(app); try await listUsers(app); message = "Đã tải \(users.count) tài khoản." }
-        catch { message = error.localizedDescription }
-    }
-    func refreshKeys(app: String) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do { try validate(app); try await listKeys(app); message = "Đã tải \(keys.count) key." }
-        catch { message = error.localizedDescription }
-    }
-
-    func createUser(app: String, username: String, password: String, days: Int) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do {
-            try validate(app, days: days)
-            guard username.range(of: "^[A-Za-z0-9_.@-]{3,64}$", options: .regularExpression) != nil else {
-                message = "Tài khoản phải dài 3–64 ký tự: chữ, số, _, ., @, -."; return
-            }
-            guard password.count >= 8 && password.count <= 256 else {
-                message = "Mật khẩu phải dài 8–256 ký tự."; return
-            }
-            _ = try await request("/api/admin/create", body: [
-                "app_id": app, "username": username, "password": password, "days": days
-            ])
-            try await listUsers(app)
-            message = "Đã tạo TK \(username). Hãy gửi mật khẩu riêng cho khách."
-        } catch { message = error.localizedDescription }
-    }
-
-    func editUser(_ operation: String, app: String, username: String, days: Int) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do {
-            try validate(app, days: operation == "extend" ? days : nil)
-            guard ["extend", "disable", "enable", "delete"].contains(operation) else { return }
-            var body: [String: Any] = ["app_id": app, "username": username]
-            if operation == "extend" { body["days"] = days }
-            let response = try await request("/api/admin/" + operation, body: body)
-            if operation == "delete" {
-                let payload = try JSONSerialization.jsonObject(with: response) as? [String: Any]
-                guard payload?["deleted"] as? Bool == true else {
-                    throw NSError(domain: "ERI", code: 502, userInfo: [
-                        NSLocalizedDescriptionKey: "Máy chủ chưa xác nhận xóa tài khoản."
-                    ])
-                }
-            }
-            try await listUsers(app)
-            if operation == "delete" {
-                guard !users.contains(where: { $0.username == username }) else {
-                    throw NSError(domain: "ERI", code: 502, userInfo: [
-                        NSLocalizedDescriptionKey: "Tài khoản vẫn tồn tại sau khi xóa. Vui lòng thử lại."
-                    ])
-                }
-                message = "Đã xóa tài khoản \(username) khỏi máy chủ."
-            } else {
-                message = "Đã cập nhật tài khoản \(username): \(operation)."
-            }
-        } catch { message = error.localizedDescription }
-    }
-
-    func createKey(app: String, buyer: String, days: Int) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do {
+    func create(app: String, buyer: String, days: Int) async {
+        await perform {
             try validate(app, days: days)
             issuedKey = ""
             let data = try await request("/api/admin/key/create", body: [
-                "app_id": app, "label": buyer, "days": days
+                "app_id": app, "label": String(buyer.prefix(96)), "days": days
             ])
             issuedKey = try JSONDecoder().decode(IssuedKey.self, from: data).key
-            try await listKeys(app)
-            message = "Đã cấp key 1 thiết bị. Hãy sao chép key ngay."
-        } catch { message = error.localizedDescription }
+            try await fetchKeys(app)
+            return "Tạo key thành công. Sao chép key mới để gửi khách!"
+        }
     }
-
-    func editKey(_ operation: String, app: String, id: String, days: Int) async {
-        guard !busy else { return }; busy = true; defer { busy = false }
-        do {
-            try validate(app, days: operation == "extend" ? days : nil)
-            guard ["extend", "disable", "enable", "reset-device", "delete"].contains(operation) else { return }
+    func action(_ name: String, app: String, id: String, days: Int) async {
+        await perform {
+            try validate(app, days: name == "extend" ? days : nil)
+            guard ["extend", "disable", "enable", "reset-device", "delete"].contains(name) else {
+                throw NSError(domain: "ERI", code: 4, userInfo: [NSLocalizedDescriptionKey: "Lệnh không hợp lệ."])
+            }
             var body: [String: Any] = ["app_id": app, "id": id]
-            if operation == "extend" { body["days"] = days }
-            let response = try await request("/api/admin/key/" + operation, body: body)
-            if operation == "delete" {
-                let payload = try JSONSerialization.jsonObject(with: response) as? [String: Any]
+            if name == "extend" { body["days"] = days }
+            let data = try await request("/api/admin/key/" + name, body: body)
+            if name == "delete" {
+                let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any]
                 guard payload?["deleted"] as? Bool == true else {
-                    throw NSError(domain: "ERI", code: 502, userInfo: [
-                        NSLocalizedDescriptionKey: "Máy chủ chưa xác nhận xóa key."
-                    ])
+                    throw NSError(domain: "ERI", code: 502, userInfo: [NSLocalizedDescriptionKey: "Máy chủ chưa xác nhận xóa key."])
                 }
             }
-            try await listKeys(app)
-            if operation == "delete" {
-                guard !keys.contains(where: { $0.id == id }) else {
-                    throw NSError(domain: "ERI", code: 502, userInfo: [
-                        NSLocalizedDescriptionKey: "Key vẫn tồn tại sau khi xóa."
-                    ])
-                }
-                message = "Đã xóa key khỏi máy chủ."
-            } else {
-                message = "Đã cập nhật key: \(operation)."
+            try await fetchKeys(app)
+            if name == "delete" && keys.contains(where: { $0.id == id }) {
+                throw NSError(domain: "ERI", code: 502, userInfo: [NSLocalizedDescriptionKey: "Key vẫn tồn tại sau yêu cầu xóa."])
             }
-        } catch { message = error.localizedDescription }
-    }
-}
-
-private enum DeletionTarget: Identifiable {
-    var id: String {
-        switch self {
-        case .account(let name): return "account:" + name
-        case .licenseKey(let id): return "key:" + id
-        }
-    }
-
-    case account(String)
-    case licenseKey(String)
-
-    var title: String {
-        switch self {
-        case .account: return "Xóa tài khoản?"
-        case .licenseKey: return "Xóa key?"
-        }
-    }
-    var detail: String {
-        switch self {
-        case .account(let name): return "Bạn chắc chắn muốn xóa tài khoản \(name)? Khách sẽ không thể đăng nhập."
-        case .licenseKey: return "Xóa key vĩnh viễn, khách sẽ không thể kích hoạt hoặc xác minh."
+            switch name {
+            case "extend": return "Đã gia hạn thêm \(days) ngày."
+            case "disable": return "Đã khóa key."
+            case "enable": return "Đã mở khóa key."
+            case "reset-device": return "Đã reset liên kết thiết bị."
+            default: return "Đã xóa key khỏi máy chủ."
+            }
         }
     }
 }
 
-private struct ERIHome: View {
-    @StateObject private var m = ERIAdmin()
-    @AppStorage("eri-menumod-app-id") private var app = "com.garena.game.kgvo"
-    @State private var mode = 0
-    @State private var username = ""
-    @State private var password = ""
+private enum ERIStyle {
+    static let background = Color(red: 0.035, green: 0.057, blue: 0.115)
+    static let card = Color(red: 0.080, green: 0.111, blue: 0.197)
+    static let blue = Color(red: 0.24, green: 0.56, blue: 1)
+    static let cyan = Color(red: 0.28, green: 0.89, blue: 0.97)
+    static let muted = Color(red: 0.65, green: 0.71, blue: 0.82)
+    static let border = Color.white.opacity(0.085)
+}
+private struct ERICard<Content: View>: View {
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 13) { content }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(ERIStyle.card, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(ERIStyle.border))
+    }
+}
+private struct ERIAdminHome: View {
+    @StateObject private var model = ERIKeyManager()
+    @AppStorage("eri-menumod-app-id") private var appID = "com.garena.game.kgvo"
     @State private var buyer = ""
     @State private var daysText = "30"
-    // Keep selected target independently of the alert's isPresented state.
-    // SwiftUI may flip isPresented=false before executing the destructive action.
-    @State private var deletionTarget: DeletionTarget?
-    @State private var showDeleteResult = false
-
+    @State private var target: DeleteTarget?
+    @State private var showActionResult = false
     private var days: Int { Int(daysText) ?? 0 }
+    private var activeCount: Int { model.keys.filter { !$0.disabled && !$0.expired }.count }
+    private var boundCount: Int { model.keys.filter { $0.device_bound }.count }
 
+    private func inputField(_ prompt: String, text: Binding<String>) -> some View {
+        TextField(prompt, text: text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .foregroundStyle(Color.white)
+            .padding(13)
+            .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
+    }
+    private func primary(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .foregroundStyle(.white)
+                .background(
+                    LinearGradient(colors: [ERIStyle.blue, Color(red: 0.35, green: 0.37, blue: 0.91)],
+                                   startPoint: .leading, endPoint: .trailing),
+                    in: RoundedRectangle(cornerRadius: 13)
+                )
+        }.buttonStyle(.plain).disabled(model.busy)
+    }
+    private func actionButton(_ title: String, color: Color = .white, onTap: @escaping () -> Void) -> some View {
+        Button(action: onTap) {
+            Text(title).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain).disabled(model.busy)
+    }
+    private func lineHeading(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+    }
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Cấu hình Admin") {
-                    SecureField("ERI_ADMIN_KEY", text: $m.secret)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    if m.isSecretSaved {
-                        Label("Đã lưu khóa Admin trên iPhone", systemImage: "checkmark.shield.fill")
-                            .foregroundStyle(.green)
-                        Button("Xóa khóa đã lưu / đổi khóa") { m.forgetSecret() }
-                    } else {
-                        Text("Dán khóa Admin đúng một lần rồi kiểm tra. Chỉ khóa được máy chủ chấp nhận mới được lưu vào Keychain.")
-                            .font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 17) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("MOD BY ERI NGUYỄN")
+                            .font(.system(size: 12, weight: .heavy, design: .rounded))
+                            .tracking(1.5)
+                            .foregroundStyle(ERIStyle.cyan)
+                        Text("ERI LOGIN").font(.system(size: 34, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                        HStack {
+                            Text("KEY ADMIN").font(.system(size: 12, weight: .bold)).tracking(1)
+                            Image(systemName: "shield.lefthalf.filled")
+                        }.foregroundStyle(ERIStyle.muted)
+                    }.padding(.top, 16).padding(.bottom, 6)
+
+                    HStack(spacing: 10) {
+                        metric("TỔNG KEY", value: model.keys.count, icon: "key.fill")
+                        metric("ĐANG DÙNG", value: activeCount, icon: "checkmark.shield.fill")
+                        metric("ĐÃ GẮN MÁY", value: boundCount, icon: "iphone")
                     }
-                    Button("Kiểm tra & Lưu khóa Admin") {
-                        Task { await m.verifyAdminKey(app: app) }
-                    }.disabled(m.busy)
-                    TextField("App ID (Bundle ID / Package)", text: $app)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                }
-                Section("Quản lý") {
-                    Picker("Chế độ", selection: $mode) {
-                        Text("TK / Mật khẩu").tag(0)
-                        Text("Key 1 thiết bị").tag(1)
-                    }.pickerStyle(.segmented)
-                    TextField("Số ngày dùng / gia hạn", text: $daysText)
-                        .keyboardType(.numberPad)
-                }
-                if mode == 0 { accountsView } else { keysView }
-                Section("Phản hồi máy chủ") {
-                    Text(m.message).font(.footnote).textSelection(.enabled)
-                }
-                Section {
-                    Text("TK/mật khẩu và key thiết bị là 2 phương thức khác nhau. ERI LOGIN gắn bằng dylib hiện kiểm tra key thiết bị, không kiểm tra TK/MK. Mật khẩu đã cấp không thể đọc lại từ máy chủ.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-            }
-            .navigationTitle("ERI LOGIN ADMIN")
-            .task {
-                if m.isSecretSaved {
-                    await m.verifyAdminKey(app: app)
-                }
-            }
-            .toolbar {
-                if m.busy { ProgressView() }
-            }
-            .sheet(item: $deletionTarget) { selected in
-                NavigationStack {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Image(systemName: "trash.circle.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(.red)
-                        Text(selected.title)
-                            .font(.title2.bold())
-                        Text(selected.detail)
-                            .font(.body)
-                        Text("Sau khi xác nhận, app sẽ gửi lệnh đến máy chủ, tải lại danh sách và hiện kết quả.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        Button(role: .destructive) {
-                            // The sheet provides an immutable item even after dismissal.
-                            let captured = selected
-                            deletionTarget = nil
-                            m.message = "Đang gửi lệnh xóa tới máy chủ..."
-                            Task {
-                                switch captured {
-                                case .account(let name):
-                                    await m.editUser("delete", app: app, username: name, days: days)
-                                case .licenseKey(let id):
-                                    await m.editKey("delete", app: app, id: id, days: days)
-                                }
-                                showDeleteResult = true
-                            }
-                        } label: {
-                            Text("XÁC NHẬN XÓA TRÊN MÁY CHỦ")
-                                .fontWeight(.bold)
-                                .frame(maxWidth: .infinity)
+                    ERICard {
+                        lineHeading("Cấu hình quản trị", symbol: "lock.shield")
+                        if model.saved {
+                            Label("Đã lưu Admin Key trong iPhone Keychain", systemImage: "checkmark.seal.fill")
+                                .font(.caption).foregroundStyle(ERIStyle.cyan)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
-                        .disabled(m.busy)
-                        Button("Hủy") { deletionTarget = nil }
-                            .frame(maxWidth: .infinity)
-                            .buttonStyle(.bordered)
+                        SecureField("ERI_ADMIN_KEY (chỉ nhập 1 lần)", text: $model.secret)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .foregroundStyle(.white)
+                            .padding(13)
+                            .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
+                        inputField("App ID (Bundle ID / Package)", text: $appID)
+                        primary("XÁC THỰC & ĐỒNG BỘ", symbol: "arrow.triangle.2.circlepath") {
+                            Task { await model.refresh(app: appID) }
+                        }
+                        if model.saved {
+                            actionButton("Đổi / xóa khóa Admin đã lưu", color: ERIStyle.muted) {
+                                model.clearSecret()
+                            }
+                        }
                     }
-                    .padding(24)
-                    .navigationTitle("Xác nhận xóa")
-                    .navigationBarTitleDisplayMode(.inline)
+                    ERICard {
+                        lineHeading("Tạo key 1 thiết bị", symbol: "plus.square.on.square")
+                        inputField("Tên khách hàng (không bắt buộc)", text: $buyer)
+                        HStack {
+                            Text("Thời hạn sử dụng").foregroundStyle(ERIStyle.muted).font(.subheadline)
+                            Spacer()
+                            TextField("30", text: $daysText)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .foregroundStyle(.white)
+                                .frame(width: 64)
+                            Text("ngày").foregroundStyle(ERIStyle.muted)
+                        }
+                        primary("TẠO KEY MỚI", symbol: "key.horizontal.fill") {
+                            Task { await model.create(app: appID, buyer: buyer, days: days) }
+                        }
+                        if !model.issuedKey.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("KEY VỪA TẠO • SAO CHÉP NGAY")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(ERIStyle.cyan)
+                                Text(model.issuedKey)
+                                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .textSelection(.enabled)
+                                actionButton("Sao chép key", color: ERIStyle.cyan) {
+                                    UIPasteboard.general.string = model.issuedKey
+                                }
+                                actionButton("Ẩn key") { model.issuedKey = "" }
+                            }
+                            .padding(12)
+                            .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 12))
+                        }
+                    }
+                    ERICard {
+                        HStack {
+                            lineHeading("Key của khách hàng", symbol: "person.2.fill")
+                            Spacer()
+                            Button("Làm mới") { Task { await model.refresh(app: appID) } }
+                                .font(.subheadline.bold()).foregroundStyle(ERIStyle.cyan)
+                                .disabled(model.busy)
+                        }
+                        if model.keys.isEmpty {
+                            Text("Chưa có key trong danh sách. Bấm Xác thực & Đồng bộ để tải.")
+                                .font(.subheadline).foregroundStyle(ERIStyle.muted)
+                                .padding(.vertical, 12)
+                        }
+                        ForEach(model.keys) { key in
+                            VStack(alignment: .leading, spacing: 11) {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(key.label.isEmpty ? "Khách hàng ERI" : key.label)
+                                            .font(.headline).foregroundStyle(.white)
+                                        Text("KEY ••••" + key.key_suffix)
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundStyle(ERIStyle.muted)
+                                    }
+                                    Spacer()
+                                    Text(key.disabled ? "ĐÃ KHÓA" : key.expired ? "HẾT HẠN" : "ĐANG DÙNG")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(key.disabled || key.expired ? .orange : ERIStyle.cyan)
+                                        .padding(.horizontal, 9).padding(.vertical, 6)
+                                        .background(Color.white.opacity(0.07), in: Capsule())
+                                }
+                                Text("Hạn: " + String(key.expires_at.prefix(10))
+                                     + "  •  " + (key.device_bound ? "Đã liên kết thiết bị" : "Chưa kích hoạt"))
+                                    .font(.caption).foregroundStyle(ERIStyle.muted)
+                                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                    actionButton("+\(days) ngày", color: ERIStyle.cyan) {
+                                        Task { await model.action("extend", app: appID, id: key.id, days: days) }
+                                    }
+                                    actionButton(key.disabled ? "Mở khóa" : "Khóa key") {
+                                        Task { await model.action(key.disabled ? "enable" : "disable", app: appID, id: key.id, days: days) }
+                                    }
+                                    actionButton("Reset máy") {
+                                        Task { await model.action("reset-device", app: appID, id: key.id, days: days) }
+                                    }
+                                    actionButton("Xóa key", color: .red) {
+                                        target = DeleteTarget(id: key.id, label: key.label.isEmpty ? "••••" + key.key_suffix : key.label)
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 12)
+                            if key.id != model.keys.last?.id {
+                                Divider().overlay(Color.white.opacity(0.08))
+                            }
+                        }
+                    }
+                    if model.busy { ProgressView().tint(ERIStyle.cyan).frame(maxWidth: .infinity) }
+                    Text(model.message).font(.subheadline)
+                        .foregroundStyle(ERIStyle.muted)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 12))
+                        .textSelection(.enabled)
+                    Text("MOD BY ERI NGUYỄN  •  1 KEY / 1 THIẾT BỊ")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1).foregroundStyle(ERIStyle.muted)
+                        .frame(maxWidth: .infinity).padding(.bottom, 30)
                 }
-                .presentationDetents([.height(400)])
+                .padding(.horizontal, 17)
             }
-            .alert("Kết quả xóa", isPresented: $showDeleteResult) {
+            .background(ERIStyle.background.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .preferredColorScheme(.dark)
+            .task { if model.saved { await model.refresh(app: appID) } }
+            .sheet(item: $target) { chosen in
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("XÓA KEY VĨNH VIỄN").font(.title3.bold())
+                    Text("Khách: " + chosen.label)
+                    Text("Key sẽ không thể dùng lại. Hành động này không thể hoàn tác.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    primary("XÁC NHẬN XÓA", symbol: "trash.fill") {
+                        let captured = chosen
+                        target = nil
+                        Task {
+                            await model.action("delete", app: appID, id: captured.id, days: days)
+                            showActionResult = true
+                        }
+                    }
+                    Button("Hủy") { target = nil }.frame(maxWidth: .infinity)
+                }
+                .padding(24)
+                .presentationDetents([.height(300)])
+                .preferredColorScheme(.dark)
+            }
+            .alert("Phản hồi máy chủ", isPresented: $showActionResult) {
                 Button("Đóng", role: .cancel) {}
             } message: {
-                Text(m.message)
+                Text(model.message)
             }
         }
     }
-
-    @ViewBuilder private var accountsView: some View {
-        Section("Tạo tài khoản / mật khẩu") {
-            TextField("Tài khoản khách (ví dụ khach001)", text: $username)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            SecureField("Mật khẩu (ít nhất 8 ký tự)", text: $password)
-                .textInputAutocapitalization(.never).autocorrectionDisabled()
-            Button("Tạo TK + MK") {
-                Task { await m.createUser(app: app, username: username, password: password, days: days) }
-            }.disabled(m.busy)
-            Button("Sao chép TK + MK") {
-                UIPasteboard.general.string = "TK: \(username)\nMK: \(password)"
-            }.disabled(username.isEmpty || password.isEmpty)
-            Text("TK/MK chỉ được cấp bởi Admin. Không lưu mật khẩu thô trên máy chủ.")
-                .font(.caption).foregroundStyle(.secondary)
+    private func metric(_ name: String, value: Int, icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Image(systemName: icon).foregroundStyle(ERIStyle.cyan)
+            Text("\(value)").font(.system(size: 23, weight: .heavy))
+                .foregroundStyle(.white)
+            Text(name).font(.system(size: 9, weight: .bold))
+                .foregroundStyle(ERIStyle.muted)
+                .lineLimit(1).minimumScaleFactor(0.75)
         }
-        Section("Quản lý tài khoản online") {
-            Button("Tải danh sách TK") { Task { await m.refreshUsers(app: app) } }
-                .disabled(m.busy)
-            ForEach(m.users) { user in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(user.username).font(.headline).textSelection(.enabled)
-                    Text("Hạn: \(user.expires_at)").font(.caption).foregroundStyle(.secondary)
-                    Text(user.disabled ? "Đã khóa" : user.expired ? "Hết hạn" : "Đang dùng")
-                        .font(.caption)
-                    HStack {
-                        Button("+\(days) ngày") {
-                            Task { await m.editUser("extend", app: app, username: user.username, days: days) }
-                        }
-                        Button(user.disabled ? "Mở" : "Khóa") {
-                            Task { await m.editUser(user.disabled ? "enable" : "disable", app: app, username: user.username, days: days) }
-                        }
-                        Button("Xóa", role: .destructive) {
-                            deletionTarget = .account(user.username)
-                            // The confirmation sheet observes deletionTarget directly.
-                        }
-                    }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
-                }.padding(.vertical, 5)
-            }
-        }
-    }
-
-    @ViewBuilder private var keysView: some View {
-        Section("Cấp key — 1 key / 1 thiết bị") {
-            TextField("Tên khách mua", text: $buyer)
-            Button("Tạo key mới") {
-                Task { await m.createKey(app: app, buyer: buyer, days: days) }
-            }.disabled(m.busy)
-            if !m.issuedKey.isEmpty {
-                Text("Key đầy đủ chỉ hiển thị ngay sau khi tạo").font(.caption)
-                Text(m.issuedKey).font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                Button("Sao chép key") { UIPasteboard.general.string = m.issuedKey }
-                Button("Ẩn key") { m.issuedKey = "" }
-            }
-        }
-        Section("Quản lý key online") {
-            Button("Tải danh sách key") { Task { await m.refreshKeys(app: app) } }
-                .disabled(m.busy)
-            ForEach(m.keys) { item in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(item.label.isEmpty ? "Khách chưa có tên" : item.label).font(.headline)
-                    Text("••••\(item.key_suffix) • \(item.device_bound ? "Đã kích hoạt máy" : "Chưa kích hoạt")")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Hạn: \(item.expires_at)").font(.caption)
-                    Text(item.disabled ? "Đã khóa" : item.expired ? "Hết hạn" : "Đang dùng")
-                        .font(.caption)
-                    HStack {
-                        Button("+\(days) ngày") {
-                            Task { await m.editKey("extend", app: app, id: item.id, days: days) }
-                        }
-                        Button(item.disabled ? "Mở" : "Khóa") {
-                            Task { await m.editKey(item.disabled ? "enable" : "disable", app: app, id: item.id, days: days) }
-                        }
-                        Button("Reset máy") {
-                            Task { await m.editKey("reset-device", app: app, id: item.id, days: days) }
-                        }
-                        Button("Xóa", role: .destructive) {
-                            deletionTarget = .licenseKey(item.id)
-                            // The confirmation sheet observes deletionTarget directly.
-                        }
-                    }.buttonStyle(.bordered).font(.caption).disabled(m.busy)
-                }.padding(.vertical, 5)
-            }
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(11)
+        .background(ERIStyle.card, in: RoundedRectangle(cornerRadius: 15))
+        .overlay(RoundedRectangle(cornerRadius: 15).stroke(ERIStyle.border))
     }
 }
 
 @main struct ERILoginAdminApp: App {
-    var body: some Scene {
-        WindowGroup { ERIHome() }
-    }
+    var body: some Scene { WindowGroup { ERIAdminHome() } }
 }
