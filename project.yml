@@ -1,0 +1,31 @@
+name: ERIHost
+options:
+  bundleIdPrefix: vn.eri
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+targets:
+  ERIHost:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: ERIHost
+      - path: Web
+        type: folder
+        buildPhase: resources
+    info:
+      path: ERIHost/GeneratedInfo.plist
+      properties:
+        CFBundleDisplayName: ERI Native Host
+        CFBundleIdentifier: vn.eri.nativehost
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSupportsIndirectInputEvents: true
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        PRODUCT_BUNDLE_IDENTIFIER: vn.eri.nativehost
+        GENERATE_INFOPLIST_FILE: "NO"

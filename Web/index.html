@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080e1b">
+  <title>ERI — Native Control</title>
+  <style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--fg:#eff7ff;--muted:#9aaac8;--bg:#080e1b;--panel:#152239;--line:#30425c;--mint:#53edc2}
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 85% 0,#163f54 0,transparent 45%),var(--bg);color:var(--fg);min-height:100vh}
+    .frame{max-width:640px;margin:0 auto;padding:calc(30px + env(safe-area-inset-top)) 17px 55px}
+    .logo{display:flex;gap:12px;align-items:center;font-weight:900;letter-spacing:.06em}
+    .logo-mark{background:linear-gradient(145deg,#54edbe,#70adff);color:#0a1826;border-radius:15px;padding:13px;font-size:22px}
+    .tag{font-size:10px;font-weight:800;letter-spacing:.2em;color:var(--mint);margin-top:4px}
+    h1{font-size:32px;letter-spacing:-.05em;margin:31px 0 10px}
+    p{font-size:13px;line-height:1.6;color:var(--muted)}
+    .status{margin:20px 0;border:1px solid #8e6b4277;border-radius:14px;padding:14px 16px;background:#362b2077;color:#ffdda9;font-size:12px;line-height:1.5}
+    .status.connected{border-color:#439e8b99;background:#13423670;color:#b0ffde}
+    .section{font-size:11px;font-weight:800;color:#728aad;letter-spacing:.18em;margin:27px 0 12px}
+    .card{display:flex;gap:12px;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--line);border-radius:17px;padding:17px;margin:10px 0}
+    .card h2{font-size:15px;margin:0 0 5px}.card p{margin:0;font-size:12px;max-width:320px}
+    .switch{height:32px;width:56px;border-radius:30px;background:#48556a;border:1px solid #60738b;flex:0 0 auto;position:relative;cursor:pointer;transition:background .18s}
+    .switch:before{content:"";position:absolute;left:4px;top:4px;width:22px;height:22px;background:#fff;border-radius:50%;transition:transform .18s}
+    .switch[aria-checked=true]{background:#22977f;border-color:#61e8bf}.switch[aria-checked=true]:before{transform:translateX(24px)}
+    .switch:disabled{opacity:.42;cursor:not-allowed}
+    .btn{font:inherit;border:1px solid #3d576e;background:#243a51;color:white;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer}
+    .btn:disabled{opacity:.45;cursor:not-allowed}.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:21px}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#a0f6d5;background:#090f1e;border:1px solid var(--line);padding:15px;border-radius:14px;font-size:11px;line-height:1.5}
+    .foot{margin-top:28px;border-top:1px solid var(--line);padding-top:17px;font-size:11px;color:var(--muted);line-height:1.7}
+    button:focus-visible{outline:2px solid var(--mint);outline-offset:3px}
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header class="logo"><div class="logo-mark">E</div><div>ERI NATIVE HOST<div class="tag">WEBVIEW BRIDGE • API V1</div></div></header>
+    <h1>Native Control <span style="color:var(--mint)">Panel.</span></h1>
+    <p>Bảng điều khiển native của ứng dụng ERI. Những nút dưới đây chỉ thay đổi tính năng của ERI Host, không chỉnh sửa game của bên thứ ba.</p>
+    <div id="status" class="status" role="status" aria-live="polite">Đang kiểm tra kết nối native…</div>
+    <div class="section">CẤU HÌNH ỨNG DỤNG</div>
+    <div class="card"><div><h2>Hiển thị nhãn overlay</h2><p>Bật hoặc tắt nhãn native của ứng dụng ERI.</p></div><button class="switch" data-feature="overlay" aria-label="Overlay" role="switch" aria-checked="false" disabled></button></div>
+    <div class="card"><div><h2>Nền tối</h2><p>Chuyển màu nền native của ERI Host.</p></div><button class="switch" data-feature="darkCanvas" aria-label="Nền tối" role="switch" aria-checked="false" disabled></button></div>
+    <div class="card"><div><h2>Rung phản hồi</h2><p>Phản hồi rung khi bật trên thiết bị có hỗ trợ.</p></div><button class="switch" data-feature="haptics" aria-label="Rung phản hồi" role="switch" aria-checked="false" disabled></button></div>
+    <div class="row"><button id="reload" class="btn">Đọc trạng thái</button><button id="reset" class="btn" disabled>Đặt lại</button></div>
+    <div class="section">TRẠNG THÁI API</div><pre id="output">Chưa có phản hồi từ native.</pre>
+    <div class="foot">Không thay thế <code>kgvn</code> hoặc <code>UnityFramework</code>. Trang web ngoài Safari không có quyền truy cập bridge. GitHub Pages chỉ cung cấp bản xem thử.</div>
+  </main>
+  <script>
+    (() => {
+      "use strict";
+      const pending = new Map();
+      const status = document.getElementById("status");
+      const output = document.getElementById("output");
+      const switches = Array.from(document.querySelectorAll("[data-feature]"));
+      const reset = document.getElementById("reset");
+      let connected = false;
+      let nextId = 0;
+      const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.eri;
+
+      window.__eriReceive = function(message) {
+        if (!message || typeof message.id !== "string") return;
+        const entry = pending.get(message.id);
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        pending.delete(message.id);
+        entry.resolve(message);
+      };
+
+      function call(type, extra = {}) {
+        if (!bridge || typeof bridge.postMessage !== "function") {
+          return Promise.resolve({ok:false,error:"native_bridge_unavailable"});
+        }
+        const id = "eri-" + (++nextId);
+        return new Promise(resolve => {
+          const timer = setTimeout(() => {
+            pending.delete(id);
+            resolve({ok:false,error:"native_timeout"});
+          }, 5000);
+          pending.set(id, {resolve,timer});
+          try {
+            bridge.postMessage(Object.assign({id,type},extra));
+          } catch(err) {
+            clearTimeout(timer);
+            pending.delete(id);
+            resolve({ok:false,error:"bridge_post_failed"});
+          }
+        });
+      }
+
+      function show(result) {
+        output.textContent = JSON.stringify(result,null,2);
+        const isHost = result.ok === true && result.payload && result.payload.host === "ERIHost";
+        connected = !!isHost;
+        status.classList.toggle("connected", connected);
+        status.textContent = connected ?
+          "● ERI Native Host đang kết nối. Không kết nối với IPA Liên Quân." :
+          "● Native API chưa khả dụng. Hãy mở trang bên trong ứng dụng ERI Host trên iOS.";
+        switches.forEach(button => {
+          button.disabled = !connected;
+          if (connected) {
+            const value = result.payload.features[button.dataset.feature] === true;
+            button.setAttribute("aria-checked", String(value));
+          }
+        });
+        reset.disabled = !connected;
+      }
+
+      async function refresh() { show(await call("getState")); }
+      switches.forEach(button => button.addEventListener("click",async () => {
+        if (!connected) return;
+        button.disabled = true;
+        const enabled = button.getAttribute("aria-checked") !== "true";
+        const result = await call("setFeature",{feature:button.dataset.feature,enabled});
+        show(result.ok ? result : await call("getState"));
+      }));
+      document.getElementById("reload").addEventListener("click",refresh);
+      reset.addEventListener("click", async () => {show(await call("reset"));});
+      refresh();
+    })();
+  </script>
+</body>
+</html>
