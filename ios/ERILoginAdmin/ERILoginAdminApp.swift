@@ -200,7 +200,18 @@ private struct ERICard<Content: View>: View {
 }
 private struct ERIAdminHome: View {
     @StateObject private var model = ERIKeyManager()
-    @AppStorage("eri-menumod-app-id") private var appID = "com.garena.game.kgvo"
+    // Preserve the existing iOS app ID for current customers. Android gets
+    // a separate saved package name to prevent accidental cross-app issuance.
+    @AppStorage("eri-menumod-app-id") private var iosAppID = "com.garena.game.kgvo"
+    @AppStorage("eri-menumod-android-package") private var androidPackageID = ""
+    @AppStorage("eri-menumod-target-platform") private var targetPlatform = "iOS"
+    private var appID: String { targetPlatform == "Android" ? androidPackageID : iosAppID }
+    private var appIDBinding: Binding<String> {
+        Binding(get: { appID }, set: { value in
+            if targetPlatform == "Android" { androidPackageID = value }
+            else { iosAppID = value }
+        })
+    }
     @State private var buyer = ""
     @State private var daysText = "30"
     @State private var target: DeleteTarget?
@@ -278,8 +289,20 @@ private struct ERIAdminHome: View {
                             .foregroundStyle(.white)
                             .padding(13)
                             .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
-                        inputField("App ID (Bundle ID / Package)", text: $appID)
-                        Text("App ID phải giống mục APP ID hiển thị trong ERI LOGIN của khách. Nếu IPA đổi Bundle ID khi ký, hãy dùng App ID được hiển thị ở đó.")
+                        Text("NỀN TẢNG CẤP KEY")
+                            .font(.caption.bold())
+                            .foregroundStyle(ERIStyle.muted)
+                        Picker("Nền tảng", selection: $targetPlatform) {
+                            Label("iOS / IPA", systemImage: "iphone").tag("iOS")
+                            Label("Android / APK", systemImage: "smartphone").tag("Android")
+                        }
+                        .pickerStyle(.segmented)
+                        inputField(targetPlatform == "Android"
+                            ? "Android Package ID (vd: com.example.game)"
+                            : "iOS Bundle ID", text: appIDBinding)
+                        Text(targetPlatform == "Android"
+                            ? "Key Android sử dụng Package ID thật của APK (Application.identifier trong Unity), không phải tên file APK. Giữ nguyên ID để key đã cấp tiếp tục dùng được."
+                            : "Key iOS sử dụng APP ID hiển thị trong ERI LOGIN của IPA. Nếu ký lại đổi Bundle ID, cần kiểm tra và nhập đúng ID.")
                             .font(.caption)
                             .foregroundStyle(ERIStyle.muted)
                             .fixedSize(horizontal: false, vertical: true)
@@ -293,7 +316,10 @@ private struct ERIAdminHome: View {
                         }
                     }
                     ERICard {
-                        lineHeading("Tạo key 1 thiết bị", symbol: "plus.square.on.square")
+                        lineHeading(targetPlatform == "Android"
+                                    ? "Cấp key Android · 1 thiết bị"
+                                    : "Cấp key iOS · 1 thiết bị",
+                                    symbol: "plus.square.on.square")
                         inputField("Tên khách hàng (không bắt buộc)", text: $buyer)
                         HStack {
                             Text("Thời hạn sử dụng").foregroundStyle(ERIStyle.muted).font(.subheadline)
@@ -328,7 +354,8 @@ private struct ERIAdminHome: View {
                     }
                     ERICard {
                         HStack {
-                            lineHeading("Key của khách hàng", symbol: "person.2.fill")
+                            lineHeading("Key " + (targetPlatform == "Android" ? "Android" : "iOS"),
+                                        symbol: "person.2.fill")
                             Spacer()
                             Button("Làm mới") { Task { await model.refresh(app: appID) } }
                                 .font(.subheadline.bold()).foregroundStyle(ERIStyle.cyan)
@@ -397,7 +424,14 @@ private struct ERIAdminHome: View {
             .background(ERIStyle.background.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
-            .task { if model.saved { await model.refresh(app: appID) } }
+            .task { if model.saved && !appID.isEmpty { await model.refresh(app: appID) } }
+            .onChange(of: targetPlatform) { _ in
+                // Never display a previous platform's key list or freshly issued key.
+                model.keys = []
+                model.issuedKey = ""
+                model.message = "Đã chuyển sang " + targetPlatform
+                    + ". Kiểm tra App ID, sau đó bấm XÁC THỰC & ĐỒNG BỘ."
+            }
             .sheet(item: $target) { chosen in
                 VStack(alignment: .leading, spacing: 18) {
                     Text("XÓA KEY VĨNH VIỄN").font(.title3.bold())
