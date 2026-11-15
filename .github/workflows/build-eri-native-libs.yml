@@ -1,4 +1,4 @@
-name: Build ERI LOGIN Android SO (Key Only)
+name: Build ERI LOGIN Android SO (Standalone C++ Runtime)
 on:
   push:
     branches: [eri-login-admin]
@@ -39,16 +39,24 @@ jobs:
           test -x "$TOOLCHAIN/armv7a-linux-androideabi23-clang++"
           mkdir -p native/android/arm64-v8a native/android/armeabi-v7a
           "$TOOLCHAIN/aarch64-linux-android23-clang++" \
-            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden \
+            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden -static-libstdc++ \
             -Wl,-z,relro,-z,now -Wl,--no-undefined \
             native/android/ERILogin.cpp -o native/android/arm64-v8a/libERILogin.so
           "$TOOLCHAIN/armv7a-linux-androideabi23-clang++" \
-            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden \
+            -std=c++17 -fPIC -shared -O2 -fvisibility=hidden -static-libstdc++ \
             -Wl,-z,relro,-z,now -Wl,--no-undefined \
             native/android/ERILogin.cpp -o native/android/armeabi-v7a/libERILogin.so
           file native/android/*/libERILogin.so
           "$TOOLCHAIN/llvm-readelf" -h native/android/arm64-v8a/libERILogin.so
           "$TOOLCHAIN/llvm-readelf" -h native/android/armeabi-v7a/libERILogin.so
+          # A standalone .so must NOT require an APK-provided libc++_shared.so.
+          for so in native/android/arm64-v8a/libERILogin.so native/android/armeabi-v7a/libERILogin.so; do
+            "$TOOLCHAIN/llvm-readelf" -d "$so" | grep NEEDED
+            if "$TOOLCHAIN/llvm-readelf" -d "$so" | grep -qE 'Shared library: \[libc\+\+_shared\.so\]|Shared library: \[libstdc\+\+\.so\]'; then
+              echo "::error file=$so::Unexpected external C++ runtime dependency"
+              exit 1
+            fi
+          done
           "$TOOLCHAIN/llvm-nm" -D native/android/arm64-v8a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
           "$TOOLCHAIN/llvm-nm" -D native/android/armeabi-v7a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
       - name: Verify Android libraries and current iOS dylib without replacing it
