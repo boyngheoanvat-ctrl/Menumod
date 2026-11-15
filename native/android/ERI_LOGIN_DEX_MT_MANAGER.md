@@ -14,7 +14,9 @@
 1. Chọn APK mà bạn được phép sửa và sao lưu nguyên bản trước.
 2. Trong APK có nhiều DEX, đặt nội dung `ERI_LOGIN_classes.dex` thành **tên DEX tiếp theo chưa sử dụng**: ví dụ nếu có `classes.dex`, `classes2.dex`, `classes3.dex` thì đặt thêm `classes4.dex`. Không ghi đè bất kỳ DEX gốc nào.
 3. Gắn đúng `libERILogin.so` vào `lib/arm64-v8a/` (ARM64), hoặc `lib/armeabi-v7a/` (ARM32). Đừng thay thế `libil2cpp.so`, `libunity.so` hoặc các thư viện game gốc.
-4. Thêm `activity` bên dưới vào trong `<application>` của `AndroidManifest.xml`, và chuyển **chỉ** intent-filter `MAIN` + `LAUNCHER` từ Activity khởi động gốc sang Login. **Giữ nguyên** các intent-filter deep-link/BROWSABLE khác của app gốc.
+4. Thêm Activity và meta-data trong Manifest. Chọn **một** trong hai cách mở màn hình: (A) Login là launcher, hoặc (B) gọi hàm `Start(Context)` từ Activity gốc bằng Smali. Không cần chuyển launcher nếu dùng cách (B).
+
+### Cách A — ERI LOGIN làm launcher
 
 Ví dụ cho tên Activity gốc `com.garena.game.kgtw.SGameActivity` đã quan sát trong file Manifest được cung cấp. Tên phải điều chỉnh cho ứng dụng của bạn:
 
@@ -37,6 +39,30 @@ Ví dụ cho tên Activity gốc `com.garena.game.kgtw.SGameActivity` đã quan 
 ```
 
 Nếu bạn gỡ bộ lọc `MAIN/LAUNCHER` khỏi Activity gốc, phải giữ nguyên các thuộc tính, filter khác và metadata của Activity đó. **Không xóa Activity gốc.**
+
+### Cách B — Gọi Login qua Smali giống menu Start(Context)
+
+Sau khi có DEX và .so, khai báo Activity (không thêm MAIN/LAUNCHER và không chuyển launcher gốc):
+
+```xml
+<!-- Đặt trong <application> -->
+<meta-data android:name="eri.login.next_activity"
+    android:value="com.garena.game.kgtw.SGameActivity" />
+
+<activity android:name="com.eri.login.ERILoginActivity"
+    android:exported="false"
+    android:theme="@android:style/Theme.Material.NoActionBar" />
+```
+
+Nếu bạn đang chỉnh sửa `onCreate(Landroid/os/Bundle;)V` của một Activity và `p0` thực sự là Activity/Context, dùng sau `invoke-super`:
+
+```smali
+invoke-static {p0}, Lcom/eri/login/ERILoginActivity;->Start(Landroid/content/Context;)V
+```
+
+**Không** thay đường dẫn thành `Lcom/eri/vip/ERIVipActivity;` hoặc `Luk/lgl/MainActivity;`; phương thức này thuộc `Lcom/eri/login/ERILoginActivity;`. `Start` mở Login bằng `Intent` và yêu cầu Activity gọi nó `finish()`. Sau khi xác thực thành công, lớp Login mở lại Activity game gốc và dùng cờ nội bộ dùng một lần để tránh vòng lặp mở Login. Nếu `p0` không phải Context thì lệnh này sai và có thể gây lỗi xác minh DEX.
+
+**Giới hạn**: một lệnh `invoke-static` kiểu `void` không dừng phần lệnh còn lại trong `onCreate`; Activity game có thể vẫn chạy tiếp công việc khởi tạo phía sau trước khi `finish()` có hiệu lực. Đây không phải cơ chế chặn toàn bộ gameplay chắc chắn. Muốn bảo đảm chỉ khởi chạy game sau khi xác thực, nên dùng cách A trong ứng dụng do bạn quản lý thay vì chỉ móc lệnh vào game đã biên dịch.
 
 ## Quy trình
 
