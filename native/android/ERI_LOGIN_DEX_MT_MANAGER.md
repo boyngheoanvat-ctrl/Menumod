@@ -64,6 +64,21 @@ invoke-static {p0}, Lcom/eri/login/ERILoginActivity;->Start(Landroid/content/Con
 
 **Giới hạn**: một lệnh `invoke-static` kiểu `void` không dừng phần lệnh còn lại trong `onCreate`; Activity game có thể vẫn chạy tiếp công việc khởi tạo phía sau trước khi `finish()` có hiệu lực. Đây không phải cơ chế chặn toàn bộ gameplay chắc chắn. Muốn bảo đảm chỉ khởi chạy game sau khi xác thực, nên dùng cách A trong ứng dụng do bạn quản lý thay vì chỉ móc lệnh vào game đã biên dịch.
 
+### Chặn khởi tạo Unity trước khi key hợp lệ
+
+Với `com.unity3d.player.UnityPlayerActivity.onCreate(Bundle)` **trong dự án mà bạn được phép sửa**, bản DEX mới hỗ trợ phương thức `StartAndGate(Context)Z`. Sau khi gọi `invoke-super ... onCreate` và trước khi gọi `StartUnity()`, dùng:
+
+```smali
+invoke-static {p0}, Lcom/eri/login/ERILoginActivity;->StartAndGate(Landroid/content/Context;)Z
+move-result v0
+if-eqz v0, :eri_continue
+return-void
+:eri_continue
+# Các lệnh khởi tạo game gốc và menu LGL đặt từ đây trở xuống.
+```
+
+`true` nghĩa là Login đang được mở hoặc không thể mở nên phải dừng `onCreate`. `false` chỉ khi Login đã xác thực key và mở lại Activity game trong cùng tiến trình. Không thêm dòng này vào trước `invoke-super onCreate`. Đừng gọi `Start(Context)V` và `StartAndGate(Context)Z` cùng lúc. Giữ nguyên `.registers` nếu v0 đã đủ và không làm thay đổi các thanh ghi tham số. Chỉ dùng một kiểu mở Login: launcher trong Manifest hoặc lệnh này.
+
 ## Quy trình
 
 - Android mở `com.eri.login.ERILoginActivity`.
