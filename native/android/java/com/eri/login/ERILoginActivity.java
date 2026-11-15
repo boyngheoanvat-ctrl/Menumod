@@ -47,22 +47,38 @@ public final class ERILoginActivity extends Activity {
     private static boolean returningFromVerifiedLogin = false;
 
     public static void Start(Context context) {
-        if (context == null || context instanceof ERILoginActivity) return;
+        StartAndGate(context);
+    }
+
+    /**
+     * Smali gate: returns true when the caller MUST return from onCreate
+     * without constructing Unity or showing a mod menu.
+     *
+     * Returns false exactly once when a validated Login has reopened the game
+     * Activity in the same app process. This is an app-start gate only.
+     */
+    public static boolean StartAndGate(Context context) {
+        if (context == null || context instanceof ERILoginActivity) return true;
         synchronized (ERILoginActivity.class) {
             if (returningFromVerifiedLogin) {
                 returningFromVerifiedLogin = false;
-                return;
+                return false;
             }
         }
-        Intent login = new Intent(context, ERILoginActivity.class);
-        if (!(context instanceof Activity)) {
-            login.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            Intent login = new Intent(context, ERILoginActivity.class);
+            if (!(context instanceof Activity)) {
+                login.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            }
+            context.startActivity(login);
+        } catch (RuntimeException error) {
+            // Fail closed: callers must not start Unity when Login did not open.
+            android.util.Log.e("ERILogin", "Cannot open Login Activity", error);
         }
-        context.startActivity(login);
         if (context instanceof Activity) {
-            // Do not leave the original game Activity behind the Login screen.
             ((Activity) context).finish();
         }
+        return true;
     }
 
     // The matching JNI function is exported by libERILogin.so.
