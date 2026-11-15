@@ -40,6 +40,31 @@ public final class ERILoginActivity extends Activity {
     private static final Pattern KEY_PATTERN = Pattern.compile(
         "^ERI-[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){5}$");
 
+    // Compatibility with a menu-style Smali call:
+    // invoke-static {p0}, Lcom/eri/login/ERILoginActivity;->Start(Landroid/content/Context;)V
+    // When the Login finishes, we start the original Activity once without
+    // relaunching the Login. This guard is process-local, not license state.
+    private static boolean returningFromVerifiedLogin = false;
+
+    public static void Start(Context context) {
+        if (context == null || context instanceof ERILoginActivity) return;
+        synchronized (ERILoginActivity.class) {
+            if (returningFromVerifiedLogin) {
+                returningFromVerifiedLogin = false;
+                return;
+            }
+        }
+        Intent login = new Intent(context, ERILoginActivity.class);
+        if (!(context instanceof Activity)) {
+            login.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
+        context.startActivity(login);
+        if (context instanceof Activity) {
+            // Do not leave the original game Activity behind the Login screen.
+            ((Activity) context).finish();
+        }
+    }
+
     // The matching JNI function is exported by libERILogin.so.
     private static native int nativeCheck(String appId, String key,
                                            String deviceId, int activate);
@@ -280,7 +305,19 @@ public final class ERILoginActivity extends Activity {
             }
             Intent intent = new Intent(this, clazz);
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            startActivity(intent);
+            // Avoid a Start(Context) -> Login -> game -> Start(Context) loop.
+            // This is only set after the backend has validated the key.
+            synchronized (ERILoginActivity.class) {
+                returningFromVerifiedLogin = true;
+            }
+            try {
+                startActivity(intent);
+            } catch (RuntimeException error) {
+                synchronized (ERILoginActivity.class) {
+                    returningFromVerifiedLogin = false;
+                }
+                throw error;
+            }
             finish();
         } catch (Exception ex) {
             status("Không mở được Activity gốc: " + ex.getClass().getSimpleName(), true);
