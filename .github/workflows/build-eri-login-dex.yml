@@ -1,0 +1,61 @@
+name: Build ERI LOGIN Android DEX
+on:
+  push:
+    branches: [eri-login-admin]
+    paths:
+      - 'native/android/java/**'
+      - '.github/workflows/build-eri-login-dex.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build-dex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eri-login-admin
+          persist-credentials: true
+      - name: Build ERI Android Java Activity to DEX
+        shell: bash
+        run: |
+          set -euo pipefail
+          ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ANDROID_PLATFORM="$(find "$ANDROID_HOME/platforms" -mindepth 1 -maxdepth 1 -type d -name 'android-*' | sort -V | tail -n 1)"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -f "$ANDROID_PLATFORM/android.jar"
+          test -x "$BUILD_TOOLS/d8"
+          mkdir -p build/eri-java build/eri-dex
+          javac -source 8 -target 8 -Xlint:-options -cp "$ANDROID_PLATFORM/android.jar" \
+            -d build/eri-java native/android/java/com/eri/login/ERILoginActivity.java
+          "$BUILD_TOOLS/d8" --min-api 23 --lib "$ANDROID_PLATFORM/android.jar" \
+            --output build/eri-dex build/eri-java/com/eri/login/ERILoginActivity.class
+          test -s build/eri-dex/classes.dex
+          file build/eri-dex/classes.dex
+          grep -a -F 'com/eri/login/ERILoginActivity' build/eri-dex/classes.dex
+          cp build/eri-dex/classes.dex build/eri-dex/ERI_LOGIN_classes.dex
+          (cd build/eri-dex && sha256sum ERI_LOGIN_classes.dex > SHA256SUMS.txt)
+      - name: Upload ERI LOGIN DEX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ERI-LOGIN-ANDROID-DEX
+          path: |
+            build/eri-dex/ERI_LOGIN_classes.dex
+            build/eri-dex/SHA256SUMS.txt
+          retention-days: 90
+      - name: Preserve DEX permanently in Menumod
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p releases
+          cp build/eri-dex/ERI_LOGIN_classes.dex releases/ERI_LOGIN_classes.dex
+          (cd releases && sha256sum ERI_LOGIN_classes.dex > ERI_LOGIN_DEX_SHA256SUMS.txt)
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add releases/ERI_LOGIN_classes.dex releases/ERI_LOGIN_DEX_SHA256SUMS.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "Publish ERI LOGIN standalone Android Activity DEX"
+            git pull --rebase origin eri-login-admin
+            git push origin HEAD:eri-login-admin
+          fi
