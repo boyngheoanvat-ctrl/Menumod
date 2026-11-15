@@ -59,6 +59,10 @@ jobs:
           done
           "$TOOLCHAIN/llvm-nm" -D native/android/arm64-v8a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
           "$TOOLCHAIN/llvm-nm" -D native/android/armeabi-v7a/libERILogin.so | grep -E 'JNI_OnLoad|eri_login_check'
+          # Match the exact JNI native method declared in ERILoginActivity.dex.
+          for so in native/android/arm64-v8a/libERILogin.so native/android/armeabi-v7a/libERILogin.so; do
+            "$TOOLCHAIN/llvm-nm" -D "$so" | grep -F 'Java_com_eri_login_ERILoginActivity_nativeCheck'
+          done
       - name: Verify Android libraries and current iOS dylib without replacing it
         shell: bash
         run: |
