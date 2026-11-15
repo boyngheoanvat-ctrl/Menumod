@@ -213,3 +213,33 @@ int eri_login_check(const char* app, const char* key, const char* device, int ac
     if (attached) g_vm->DetachCurrentThread();
     return result;
 }
+
+
+// JNI entrypoint for com.eri.login.ERILoginActivity in the optional DEX.
+// The existing native licensing function is preserved for Unity callers.
+extern "C" JNIEXPORT jint JNICALL
+Java_com_eri_login_ERILoginActivity_nativeCheck(
+        JNIEnv* env, jclass, jstring appId, jstring key, jstring deviceId,
+        jint activate) {
+    if (!appId || !key || !deviceId) return -3;
+    const char* app = env->GetStringUTFChars(appId, nullptr);
+    if (!app) { if (env->ExceptionCheck()) env->ExceptionClear(); return -3; }
+    const char* secret = env->GetStringUTFChars(key, nullptr);
+    if (!secret) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->ReleaseStringUTFChars(appId, app);
+        return -3;
+    }
+    const char* device = env->GetStringUTFChars(deviceId, nullptr);
+    if (!device) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->ReleaseStringUTFChars(key, secret);
+        env->ReleaseStringUTFChars(appId, app);
+        return -3;
+    }
+    int result = eri_login_check(app, secret, device, activate != 0 ? 1 : 0);
+    env->ReleaseStringUTFChars(deviceId, device);
+    env->ReleaseStringUTFChars(key, secret);
+    env->ReleaseStringUTFChars(appId, app);
+    return result;
+}
