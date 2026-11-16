@@ -78,3 +78,12 @@ Máy chủ vẫn có đường dẫn tài khoản cũ cho tương thích với h
 - Build .so Android bằng Android NDK.
 - Sau khi ký và cài, kiểm thử trên thiết bị thật: key mới, key hết hạn, key khóa, dùng key trên thiết bị thứ hai, và reset thiết bị.
 - Thành công khi biên dịch không tự chứng minh thư viện đã được nạp vào game của bên thứ ba.
+
+## Cấu hình quản trị — bản 1.0.1
+
+- Biểu tượng con mắt trong ô `ERI_ADMIN_KEY`: hiện/ẩn khóa chính hoặc khóa phụ đang nhập. Khóa được ẩn lại khi ứng dụng chuyển ra nền.
+- Nút **TẠO THÊM ADMIN KEY**: chỉ khóa quản trị **chính** mới cấp được khóa quản trị phụ có thời hạn **1–90 ngày** qua `POST /api/admin/keys/issue` của Render proxy.
+- Key quản trị phụ được máy chủ ký HMAC; nhận đầy đủ quyền quản lý key người dùng nhưng **không** được tạo thêm khóa quản trị phụ. Khóa phụ được hiển thị một lần để sao chép và không thay thế khóa chính lưu trong Keychain.
+- Khóa phụ hết hạn tự động; hiện **chưa có thu hồi từng khóa phụ**, muốn vô hiệu hóa toàn bộ cần đổi `ERI_ADMIN_KEY` gốc trên Render và đồng bộ các ứng dụng quản trị.
+- Nếu backend Render chưa triển khai mã mới, API tạo khóa phụ sẽ báo 404/403. Không tự tạo key không được máy chủ xác thực.
+- Bản cập nhật không xóa key khách hàng hoặc thay đổi Bundle ID của Admin.
