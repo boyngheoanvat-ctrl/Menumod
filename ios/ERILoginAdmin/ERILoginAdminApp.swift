@@ -46,6 +46,10 @@ private enum ERIVault {
 private struct APIError: Decodable { let error: String? }
 private struct KeyList: Decodable { let keys: [LicenseKey] }
 private struct IssuedKey: Decodable { let key: String }
+private struct IssuedAdminCredential: Decodable {
+    let admin_key: String
+    let expires_at: Int
+}
 private struct LicenseKey: Decodable, Identifiable {
     let id: String
     let label: String
@@ -65,6 +69,8 @@ private struct DeleteTarget: Identifiable {
     @Published var saved = !ERIVault.read().isEmpty
     @Published var keys: [LicenseKey] = []
     @Published var issuedKey = ""
+    @Published var issuedAdminKey = ""
+    @Published var issuedAdminExpiry = 0
     @Published var message = "Sẵn sàng quản lý key thiết bị."
     @Published var busy = false
     private let origin = "https://eri-login-api.onrender.com"
@@ -95,7 +101,7 @@ private struct DeleteTarget: Identifiable {
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200...299).contains(http.statusCode) else {
-            if http.statusCode == 403 {
+            if http.statusCode == 403 && route != "/api/admin/keys/issue" {
                 if ERIVault.read() == token { ERIVault.save("") }
                 saved = false
                 keys = []
@@ -136,6 +142,21 @@ private struct DeleteTarget: Identifiable {
             try validate(app)
             try await fetchKeys(app)
             return "Đã đồng bộ \(keys.count) key từ máy chủ."
+        }
+    }
+    func createExtraAdminKey(days: Int) async {
+        await perform {
+            guard (1...90).contains(days) else {
+                throw NSError(domain: "ERI", code: 400,
+                              userInfo: [NSLocalizedDescriptionKey: "Thời hạn Admin Key từ 1 đến 90 ngày."])
+            }
+            issuedAdminKey = ""
+            issuedAdminExpiry = 0
+            let data = try await request("/api/admin/keys/issue", body: ["days": days])
+            let result = try JSONDecoder().decode(IssuedAdminCredential.self, from: data)
+            issuedAdminKey = result.admin_key
+            issuedAdminExpiry = result.expires_at
+            return "Đã tạo Admin Key phụ có hạn sử dụng. Chỉ hiển thị một lần; hãy sao chép và lưu an toàn."
         }
     }
     func create(app: String, buyer: String, days: Int) async {
@@ -212,6 +233,9 @@ private struct ERIAdminHome: View {
             else { iosAppID = value }
         })
     }
+    @State private var showAdminKey = false
+    @State private var adminKeyDays = 30
+    @Environment(\.scenePhase) private var scenePhase
     @State private var buyer = ""
     @State private var daysText = "30"
     @State private var target: DeleteTarget?
@@ -284,11 +308,36 @@ private struct ERIAdminHome: View {
                             Label("Đã lưu Admin Key trong iPhone Keychain", systemImage: "checkmark.seal.fill")
                                 .font(.caption).foregroundStyle(ERIStyle.cyan)
                         }
-                        SecureField("ERI_ADMIN_KEY (chỉ nhập 1 lần)", text: $model.secret)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        HStack(spacing: 8) {
+                            Group {
+                                if showAdminKey {
+                                    TextField("ERI_ADMIN_KEY (chỉ nhập 1 lần)", text: $model.secret)
+                                } else {
+                                    SecureField("ERI_ADMIN_KEY (chỉ nhập 1 lần)", text: $model.secret)
+                                }
+                            }
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .font(.system(.body, design: .monospaced))
                             .foregroundStyle(.white)
-                            .padding(13)
-                            .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
+                            Button {
+                                showAdminKey.toggle()
+                            } label: {
+                                Image(systemName: showAdminKey ? "eye.slash.fill" : "eye.fill")
+                                    .foregroundStyle(ERIStyle.cyan)
+                                    .frame(width: 44, height: 44)
+                                    .accessibilityLabel(showAdminKey ? "Ẩn khóa quản trị" : "Hiện khóa quản trị")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.leading, 13)
+                        .padding(.trailing, 4)
+                        .background(Color.white.opacity(0.075), in: RoundedRectangle(cornerRadius: 12))
+                        if showAdminKey {
+                            Text("Khóa quản trị đang hiển thị. Không chia sẻ ảnh màn hình khi mở khóa.")
+                                .font(.caption2)
+                                .foregroundStyle(ERIStyle.muted)
+                        }
                         Text("NỀN TẢNG CẤP KEY")
                             .font(.caption.bold())
                             .foregroundStyle(ERIStyle.muted)
@@ -312,7 +361,51 @@ private struct ERIAdminHome: View {
                         if model.saved {
                             actionButton("Đổi / xóa khóa Admin đã lưu", color: ERIStyle.muted) {
                                 model.clearSecret()
+                                model.issuedAdminKey = ""
+                                showAdminKey = false
                             }
+                        }
+                        Divider().overlay(Color.white.opacity(0.08))
+                        lineHeading("Tạo thêm khóa quản trị", symbol: "person.badge.key.fill")
+                        HStack {
+                            Text("Thời hạn key phụ").foregroundStyle(ERIStyle.muted)
+                                .font(.subheadline)
+                            Spacer()
+                            Stepper("\(adminKeyDays) ngày", value: $adminKeyDays, in: 1...90, step: 1)
+                                .fixedSize()
+                                .foregroundStyle(.white)
+                        }
+                        Text("Chỉ Admin Key chính mới được tạo key phụ. Key phụ tự hết hạn, không tạo được key quản trị tiếp theo; đổi khóa chính sẽ vô hiệu hóa tất cả key phụ.")
+                            .font(.caption)
+                            .foregroundStyle(ERIStyle.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        primary("TẠO THÊM ADMIN KEY", symbol: "plus.circle.fill") {
+                            Task { await model.createExtraAdminKey(days: adminKeyDays) }
+                        }
+                        if !model.issuedAdminKey.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("ADMIN KEY PHỤ • SAO CHÉP NGAY")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(ERIStyle.cyan)
+                                Text(model.issuedAdminKey)
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .textSelection(.enabled)
+                                Text("Hết hạn: " + Date(timeIntervalSince1970:
+                                    TimeInterval(model.issuedAdminExpiry))
+                                    .formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption)
+                                    .foregroundStyle(ERIStyle.muted)
+                                actionButton("Sao chép Admin Key phụ", color: ERIStyle.cyan) {
+                                    UIPasteboard.general.string = model.issuedAdminKey
+                                }
+                                actionButton("Ẩn key phụ") {
+                                    model.issuedAdminKey = ""
+                                    model.issuedAdminExpiry = 0
+                                }
+                            }
+                            .padding(12)
+                            .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
                     ERICard {
@@ -425,6 +518,13 @@ private struct ERIAdminHome: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.dark)
             .task { if model.saved && !appID.isEmpty { await model.refresh(app: appID) } }
+            .onChange(of: scenePhase) { phase in
+                if phase != .active {
+                    showAdminKey = false
+                    model.issuedAdminKey = ""
+                    model.issuedAdminExpiry = 0
+                }
+            }
             .onChange(of: targetPlatform) { _ in
                 // Never display a previous platform's key list or freshly issued key.
                 model.keys = []
