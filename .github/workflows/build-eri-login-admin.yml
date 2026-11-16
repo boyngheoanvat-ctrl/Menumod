@@ -1,0 +1,39 @@
+name: Build ERI Login Admin iOS IPA
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/ERILoginAdmin/**'
+      - 'project.yml'
+      - '.github/workflows/build-eri-login-admin.yml'
+  workflow_dispatch:
+jobs:
+  build-ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build unsigned ARM64 iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild -project ERILoginAdmin.xcodeproj -scheme ERILoginAdmin \
+            -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          mkdir -p dist/Payload
+          cp -R build/Build/Products/Release-iphoneos/ERILoginAdmin.app dist/Payload/
+          (cd dist && zip -qr ERILoginAdmin-unsigned.ipa Payload)
+          file dist/Payload/ERILoginAdmin.app/ERILoginAdmin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ERILoginAdmin-ios-arm64-unsigned
+          path: dist/ERILoginAdmin-unsigned.ipa
+          if-no-files-found: error
