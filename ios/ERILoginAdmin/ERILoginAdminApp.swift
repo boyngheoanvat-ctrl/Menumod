@@ -71,6 +71,9 @@ private struct DeleteTarget: Identifiable {
     @Published var issuedKey = ""
     @Published var issuedAdminKey = ""
     @Published var issuedAdminExpiry = 0
+    @Published var adminIssueMessage = ""
+    @Published var adminIssueFailed = false
+    @Published var issuingAdmin = false
     @Published var message = "Sẵn sàng quản lý key thiết bị."
     @Published var busy = false
     private let origin = "https://eri-login-api.onrender.com"
@@ -145,18 +148,38 @@ private struct DeleteTarget: Identifiable {
         }
     }
     func createExtraAdminKey(days: Int) async {
-        await perform {
+        guard !issuingAdmin else { return }
+        issuingAdmin = true
+        adminIssueMessage = "Đang yêu cầu máy chủ cấp khóa quản trị phụ..."
+        adminIssueFailed = false
+        issuedAdminKey = ""
+        issuedAdminExpiry = 0
+        defer { issuingAdmin = false }
+        do {
             guard (1...90).contains(days) else {
                 throw NSError(domain: "ERI", code: 400,
-                              userInfo: [NSLocalizedDescriptionKey: "Thời hạn Admin Key từ 1 đến 90 ngày."])
+                              userInfo: [NSLocalizedDescriptionKey: "Thời hạn Admin Key phải từ 1 đến 90 ngày."])
             }
-            issuedAdminKey = ""
-            issuedAdminExpiry = 0
             let data = try await request("/api/admin/keys/issue", body: ["days": days])
             let result = try JSONDecoder().decode(IssuedAdminCredential.self, from: data)
+            guard result.admin_key.hasPrefix("ERIADM1."), result.expires_at > Int(Date().timeIntervalSince1970) else {
+                throw NSError(domain: "ERI", code: 502,
+                              userInfo: [NSLocalizedDescriptionKey: "Máy chủ trả khóa quản trị phụ không hợp lệ."])
+            }
             issuedAdminKey = result.admin_key
             issuedAdminExpiry = result.expires_at
-            return "Đã tạo Admin Key phụ có hạn sử dụng. Chỉ hiển thị một lần; hãy sao chép và lưu an toàn."
+            adminIssueMessage = "Cấp Admin Key phụ thành công. Bấm Sao chép bên dưới khóa chính."
+        } catch {
+            adminIssueFailed = true
+            let detail = error.localizedDescription
+            if let apiError = error as NSError?, apiError.code == 404 {
+                adminIssueMessage = "API Render chưa hỗ trợ tạo Admin Key phụ (HTTP 404). Cần triển khai bản API mới."
+            } else if let apiError = error as NSError?, apiError.code == 403 {
+                adminIssueMessage = "Chỉ Admin Key chính mới tạo được khóa phụ. Kiểm tra khóa chính đã lưu."
+            } else {
+                adminIssueMessage = "Không tạo được Admin Key phụ: " + detail
+            }
+            message = adminIssueMessage
         }
     }
     func create(app: String, buyer: String, days: Int) async {
@@ -338,6 +361,35 @@ private struct ERIAdminHome: View {
                                 .font(.caption2)
                                 .foregroundStyle(ERIStyle.muted)
                         }
+                        // The freshly issued key MUST appear immediately below the main Admin Key.
+                        if !model.issuedAdminKey.isEmpty {
+                            VStack(alignment: .leading, spacing: 9) {
+                                Label("ADMIN KEY PHỤ ĐÃ TẠO", systemImage: "checkmark.shield.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(ERIStyle.cyan)
+                                Text(model.issuedAdminKey)
+                                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.white)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text("Hết hạn: " + Date(timeIntervalSince1970:
+                                    TimeInterval(model.issuedAdminExpiry))
+                                    .formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption)
+                                    .foregroundStyle(ERIStyle.muted)
+                                actionButton("SAO CHÉP ADMIN KEY PHỤ", color: ERIStyle.cyan) {
+                                    UIPasteboard.general.string = model.issuedAdminKey
+                                    model.adminIssueMessage = "Đã sao chép Admin Key phụ."
+                                }
+                                actionButton("Ẩn khóa phụ") {
+                                    model.issuedAdminKey = ""
+                                    model.issuedAdminExpiry = 0
+                                    model.adminIssueMessage = ""
+                                }
+                            }
+                            .padding(13)
+                            .background(Color(red: 0.11, green: 0.19, blue: 0.29), in: RoundedRectangle(cornerRadius: 13))
+                        }
                         Text("NỀN TẢNG CẤP KEY")
                             .font(.caption.bold())
                             .foregroundStyle(ERIStyle.muted)
@@ -362,6 +414,7 @@ private struct ERIAdminHome: View {
                             actionButton("Đổi / xóa khóa Admin đã lưu", color: ERIStyle.muted) {
                                 model.clearSecret()
                                 model.issuedAdminKey = ""
+                                model.adminIssueMessage = ""
                                 showAdminKey = false
                             }
                         }
@@ -379,33 +432,38 @@ private struct ERIAdminHome: View {
                             .font(.caption)
                             .foregroundStyle(ERIStyle.muted)
                             .fixedSize(horizontal: false, vertical: true)
-                        primary("TẠO THÊM ADMIN KEY", symbol: "plus.circle.fill") {
+                        Button {
                             Task { await model.createExtraAdminKey(days: adminKeyDays) }
-                        }
-                        if !model.issuedAdminKey.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("ADMIN KEY PHỤ • SAO CHÉP NGAY")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(ERIStyle.cyan)
-                                Text(model.issuedAdminKey)
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.white)
-                                    .textSelection(.enabled)
-                                Text("Hết hạn: " + Date(timeIntervalSince1970:
-                                    TimeInterval(model.issuedAdminExpiry))
-                                    .formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
-                                    .foregroundStyle(ERIStyle.muted)
-                                actionButton("Sao chép Admin Key phụ", color: ERIStyle.cyan) {
-                                    UIPasteboard.general.string = model.issuedAdminKey
+                        } label: {
+                            HStack(spacing: 10) {
+                                if model.issuingAdmin {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Image(systemName: "plus.circle.fill")
                                 }
-                                actionButton("Ẩn key phụ") {
-                                    model.issuedAdminKey = ""
-                                    model.issuedAdminExpiry = 0
-                                }
+                                Text(model.issuingAdmin ? "ĐANG TẠO ADMIN KEY..." : "TẠO THÊM ADMIN KEY")
                             }
-                            .padding(12)
-                            .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 12))
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .foregroundStyle(.white)
+                            .background(
+                                LinearGradient(colors: [ERIStyle.blue, Color(red: 0.35, green: 0.37, blue: 0.91)],
+                                               startPoint: .leading, endPoint: .trailing),
+                                in: RoundedRectangle(cornerRadius: 13)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(model.issuingAdmin)
+                        if !model.adminIssueMessage.isEmpty {
+                            Label(model.adminIssueMessage,
+                                  systemImage: model.adminIssueFailed ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(model.adminIssueFailed ? .orange : ERIStyle.cyan)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
                     ERICard {
