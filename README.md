@@ -1,29 +1,25 @@
-# ERI Login Admin — iOS / Android Key Management
+# Menumod — ERI LOGIN ADMIN (khôi phục từ bản build gốc)
 
-Repository **Menumod** chỉ dành cho hệ thống **ERI Login Key**. Giao diện quản trị là ứng dụng iPhone SwiftUI; không dùng web UI hay Python client.
+Kho mã của ứng dụng **ERI LOGIN ADMIN** quản lý key thiết bị cho iOS IPA và Android APK. Đây là **mã nguồn gốc** tại commit `b36dee13e20f9d2a00f0a22ad1db8b9f83fe8dbc`, tương ứng [Actions run #43604903103](https://github.com/boyngheoanvat-ctrl/Menumod/actions/runs/43604903103) ngày 14/11/2026. Các file không liên quan (ERIHost/WebView, công cụ IPA/FPS, ImGui) không được khôi phục.
 
-## Mã nguồn hiện có
-- apps/ERILoginAdmin/ERILoginAdminApp.swift — SwiftUI Admin iOS.
-- project.yml — XcodeGen dành cho iOS 16+.
-- .github/workflows/build-eri-login-admin.yml — GitHub Actions tạo IPA chưa ký.
-- worker/src/index.js — API quản trị, xác minh và liên kết key với thiết bị.
-- worker/migrations/0001_keys.sql — Cloudflare D1 database bền vững.
-- worker/wrangler.toml.example — cấu hình ví dụ triển khai Worker/D1.
+## Thành phần
+
+- `ios/ERILoginAdmin/ERILoginAdminApp.swift` — SwiftUI Admin gốc, không có form tài khoản/mật khẩu người dùng.
+- `ios/ERILoginAdmin/Info.plist` — thông tin app/bundle ID gốc.
+- `docs/ERI_LOGIN_ADMIN_HUONG_DAN.md` — hướng dẫn gốc, quản lý và kiểm thử key.
+- `.github/workflows/build-login-admin.yml` — workflow từ bản gốc, chỉnh nhánh chạy thành `main` và bỏ bước tự ghi IPA trở lại repository để tránh làm rối mã nguồn.
+- `releases/ERI_LOGIN_ADMIN_unsigned.ipa` — bản IPA chưa ký đã lưu trong git tại đúng commit nguồn; để lấy artifact **của run #43604903103**, mở trang Actions phía trên và tải artifact từ run đó.
 
 ## Chức năng
-Tạo key iOS/Android; xem danh sách; gia hạn ngày; khóa/mở khóa; gỡ liên kết thiết bị; xóa; kiểm tra API. Admin key được lưu trong iOS Keychain. Người dùng chỉ cần key thiết bị, không cần tài khoản/mật khẩu.
 
-## Triển khai API
-Trong thư mục worker, tạo database bằng npx wrangler d1 create ERI_KEYS, sao chép wrangler.toml.example thành wrangler.toml và điền database_id. Khai báo hai secret bằng npx wrangler secret put ADMIN_KEY và npx wrangler secret put DEVICE_PEPPER. ADMIN_KEY cần ít nhất 32 ký tự.
-Chạy npx wrangler d1 migrations apply ERI_KEYS --remote, sau đó npx wrangler deploy. Trong Admin nhập URL HTTPS Worker và ERI_ADMIN_KEY, bấm lưu và kiểm tra.
+Tạo key, xem danh sách, gia hạn, khóa/mở khóa, reset liên kết thiết bị, xóa key. Admin Key được lưu iOS Keychain sau khi xác thực. Hỗ trợ App ID cho cả ứng dụng iOS/Android.
 
-API phía client: POST /api/verify với JSON gồm platform (ios/android), key và device_id; server trả ok và expires_at khi key còn hiệu lực. Dylib / .so phía client CHƯA được tạo trong repo này. Device ID do client gửi có thể bị giả mạo; cần cơ chế chứng thực thiết bị và chống lạm dụng/rate limiting trước khi dùng thương mại.
+## Cấu hình
 
-## Build
-Workflow Build ERI Login Admin iOS IPA tạo artifact ERILoginAdmin-unsigned.ipa trên macOS, cần ký với chứng chỉ iOS và mobileprovision hợp lệ. Không có sẵn backend được triển khai hoặc bản đã kiểm thử trên iPhone.
+Ứng dụng gốc gọi tới `https://eri-login-api.onrender.com`; không tự động thay máy chủ hoặc dữ liệu hiện tại. Mã nguồn có thể build ra IPA chưa ký qua Actions, nhưng cần ký lại bằng chứng chỉ/hồ sơ iOS hợp lệ để cài lên iPhone. Chưa xác minh máy chủ Render còn hoạt động và chưa thử IPA trên máy thật.
 
-## Mã cũ và menu
-Phiên bản cũ của nhánh main (ERIHost, WebView, công cụ IPA/FPS) được sao lưu ở nhánh backup-main-before-login-cleanup-20261117. Không khôi phục các công cụ đó vì không thuộc login key.
-Menu ImGui được chuyển sang repository boyngheoanvat-ctrl/zsp: https://github.com/boyngheoanvat-ctrl/zsp
+## Sao lưu
 
-**Trạng thái: Đây là mã nguồn ERI Login Admin được dựng mới, không phải bản IPA cũ được khôi phục.**
+- Bản `main` trước khi khôi phục: [backup-new-admin-before-original-restore-20261117](../../tree/backup-new-admin-before-original-restore-20261117)
+- Mã kho trước khi dọn công cụ: [backup-main-before-login-cleanup-20261117](../../tree/backup-main-before-login-cleanup-20261117)
+- Menu ImGui nằm riêng tại [zsp](https://github.com/boyngheoanvat-ctrl/zsp).
