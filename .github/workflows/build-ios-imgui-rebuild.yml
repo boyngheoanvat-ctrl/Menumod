@@ -40,6 +40,7 @@ jobs:
           s=s.replace('view.toggleRect=iconRect;', '((ERIPassThroughMetalView*)view).toggleRect=iconRect;')
           p.write_text(s)
           PY
+          python3 eri-imgui/fix_overlay.py
       - name: Download Dear ImGui v1.92.2
         shell: bash
         run: git clone --depth 1 --branch v1.92.2 https://github.com/ocornut/imgui.git vendor/imgui
