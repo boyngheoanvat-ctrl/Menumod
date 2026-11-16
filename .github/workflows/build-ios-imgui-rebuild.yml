@@ -29,6 +29,17 @@ jobs:
           PY
           tar -xJf /tmp/eri-source.tar.xz -C eri-imgui
           ls -la eri-imgui/Sources
+          # Bridge typing fix for Objective-C SDK selectors.
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('eri-imgui/Sources/ERIOverlay.mm')
+          s=p.read_text()
+          s=s.replace('@interface NSObject (ERIRowBridge)', '@protocol ERIRow <NSObject>')
+          s=s.replace('for(id row in rows) {', 'for(id<ERIRow> row in rows) {')
+          s=s.replace('view.panelRect=panelRect;', '((ERIPassThroughMetalView*)view).panelRect=panelRect;')
+          s=s.replace('view.toggleRect=iconRect;', '((ERIPassThroughMetalView*)view).toggleRect=iconRect;')
+          p.write_text(s)
+          PY
       - name: Download Dear ImGui v1.92.2
         shell: bash
         run: git clone --depth 1 --branch v1.92.2 https://github.com/ocornut/imgui.git vendor/imgui
