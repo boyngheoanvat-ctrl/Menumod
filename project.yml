@@ -1,0 +1,26 @@
+name: ERILoginAdmin
+options:
+  bundleIdPrefix: vn.eringuyen
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  ERILoginAdmin:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - apps/ERILoginAdmin
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: vn.eringuyen.eriloginadmin
+        PRODUCT_NAME: ERILoginAdmin
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      testTargets: []
