@@ -5,6 +5,11 @@ on:
     paths:
       - 'eri-imgui/**'
       - '.github/workflows/build-ios-imgui-rebuild.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'eri-imgui/**'
+      - '.github/workflows/build-ios-imgui-rebuild.yml'
   workflow_dispatch:
 jobs:
   build:
