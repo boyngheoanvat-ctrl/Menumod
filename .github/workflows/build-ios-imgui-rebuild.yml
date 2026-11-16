@@ -1,0 +1,54 @@
+name: Build ERI ImGui Rebuild iOS ARM64
+on:
+  push:
+    branches: [eri-imgui-rebuild]
+    paths:
+      - 'eri-imgui/**'
+      - '.github/workflows/build-ios-imgui-rebuild.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          from pathlib import Path
+          raw=base64.b64decode(Path("eri-imgui/src.tar.xz.b64").read_text().strip(),validate=True)
+          Path("/tmp/eri-source.tar.xz").write_bytes(raw)
+          PY
+          tar -xJf /tmp/eri-source.tar.xz -C eri-imgui
+          ls -la eri-imgui/Sources
+      - name: Download Dear ImGui v1.92.2
+        shell: bash
+        run: git clone --depth 1 --branch v1.92.2 https://github.com/ocornut/imgui.git vendor/imgui
+      - name: Compile ARM64 iPhoneOS dylib
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p dist
+          xcrun --sdk iphoneos clang++ -std=c++17 -O2 -fobjc-arc -fblocks \
+            -arch arm64 -miphoneos-version-min=14.0 -isysroot "$SDK" \
+            -dynamiclib -stdlib=libc++ -fvisibility=hidden \
+            -Ivendor/imgui -Ivendor/imgui/backends -Ieri-imgui/Sources \
+            eri-imgui/Sources/ERIOverlay.mm eri-imgui/Sources/ERIMenu.cpp \
+            vendor/imgui/imgui.cpp vendor/imgui/imgui_draw.cpp \
+            vendor/imgui/imgui_widgets.cpp vendor/imgui/imgui_tables.cpp \
+            vendor/imgui/backends/imgui_impl_metal.mm \
+            -framework Foundation -framework UIKit -framework Metal \
+            -framework MetalKit -framework QuartzCore -framework CoreGraphics \
+            -Wl,-install_name,@executable_path/Frameworks/ERIImGuiOverlay.dylib \
+            -o dist/ERIImGuiOverlay.dylib
+          file dist/ERIImGuiOverlay.dylib
+          lipo -info dist/ERIImGuiOverlay.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ERIImGuiOverlay-arm64
+          path: dist/ERIImGuiOverlay.dylib
+          if-no-files-found: error
