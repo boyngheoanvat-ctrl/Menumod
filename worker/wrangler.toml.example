@@ -1,0 +1,13 @@
+# Copy to wrangler.toml and configure your own D1 database ID.
+name = "eri-login-key-api"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ERI_KEYS"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Set secret variables:
+# npx wrangler secret put ADMIN_KEY
+# npx wrangler secret put DEVICE_PEPPER
